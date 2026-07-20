@@ -117,7 +117,7 @@ class NovelView(ctx: Context) : View(ctx) {
 
     init {
         loadManifest()
-        titleBg = loadBitmap("onsen_from_train")
+        titleBg = loadBitmap("cottage_ext")
         handler.postDelayed(ticker, TYPE_INTERVAL)
     }
 

@@ -1,42 +1,50 @@
-# 終電の向こう側（サウンドノベル）
+# とあるところに（サウンドノベル）
 
-Termux + GitHub Actions ビルド前提のサウンドノベルエンジン。
+Termux + GitHub Actions ビルド前提のサウンドノベルアプリ。
 外部依存ゼロ / XMLレイアウトなし / プログラマティックUI。
 
-## 収録内容 (v1.0)
-- 第一話「終電の向こう側」
-- 第二話「灯りの街」→ ラストで2択分岐
-  - A「旅館へ向かう」= 原作ルート（ep03 未収録のため「続く」表示）
-  - B「駅へ引き返す」= ifルート「帰り道」（完結）
-- 背景10枚（Python生成）/ 環境音3種（走行音・ドローン・祭囃子）
-- オートセーブ（つづきから再開時に背景・音も復元）
+## 収録内容 (v2.0)
+- 完成版 全34話（第一話「終電の向こう側」〜 第三十四話「ひとまずの結論」）
+- 1話につき背景1枚（全15種）+ 環境音1種（全9種）
+- 分岐なし（ep01 → ep34 一本道。第一部完で終了）
+- タイプライター表示 / 6行ごとのページ送り / オートセーブ
+- アイコン: 夜のキャンプコテージ
+
+## 背景と環境音の割り当て
+| 話 | 背景 | 環境音 |
+|---|---|---|
+| 1 | 夜行列車の車内 | 走行音 |
+| 2 | 温泉街 | 祭囃子 |
+| 3 | 旅館ロビー・囲炉裏 | 囲炉裏とざわめき |
+| 4 | 大浴場 | 湯と滴 |
+| 5 | 夜の交番（雨） | 雨 |
+| 6-7 | 交番の内部 | 雨 |
+| 8 | 夜の山道 | 雨 |
+| 9 | 山奥のコテージ外観 | 不穏なドローン |
+| 10-13,15 | 暖炉のある広間（夜） | 暖炉 |
+| 14 | 雷鳴の窓 | 雷雨 |
+| 16 | 洋燈だけの小屋 | 雷雨 |
+| 17 | 朝の森 | 小鳥 |
+| 18-28,31-33 | 広間（昼・アタッシュケース） | 暖炉 |
+| 29-30 | 洋燈の部屋 | 暖炉 |
+| 34 | 食卓 | ざわめき |
 
 ## ビルド
-GitHubに新規リポジトリを作り、このフォルダの中身をpushするだけ。
-Actionsが自動で app-debug.apk を成果物に出力します。
+push すると GitHub Actions が app-debug.apk を出力します。
 （AGP 8.5.2 / Kotlin 1.9.24 / Gradle 8.9 / debug.keystore 同梱）
 
-    cd SoundNovelApp
-    git init
-    git add -A
-    git commit -m "v1.0 ep01-ep02 + if route"
-    git branch -M main
-    git remote add origin https://github.com/Sekiguchi-Takashi/SoundNovelApp.git
-    git push -u origin main
-
-## 話を追加する手順（第三話以降）
-1. チャットに本文を貼り「第三話」と指示
-2. 生成された ep03.json を app/src/main/assets/scenario/ へ、
-   新規背景 *.jpg を assets/bg/ へ置く
-3. manifest.json の "episodes" に "ep03" を追記
-4. push すれば再ビルド。選択肢Aの「続く」画面が自動的に第三話へ繋がる
-
-## シナリオ形式（scenario/*.json）
-    {"t":"title","v":"第三話　○○"}   話タイトルカード
-    {"t":"bg","v":"ryokan"}          背景切替（bg/名前.jpg）
-    {"t":"se","v":"matsuri"}         環境音（train/ambient/matsuri/stop）
+## シナリオ形式（assets/scenario/*.json）
+    {"t":"title","v":"第○話　……"}  話タイトルカード
+    {"t":"bg","v":"cottage_hall"}    背景切替（bg/名前.jpg）
+    {"t":"se","v":"fire"}            環境音（se/se_名前.wav、stopで停止）
     {"t":"l","v":"本文1行"}          タップで進む1行
     {"t":"p"}                        ページクリア
-    {"t":"choice","q":"？","a":{"v":"…","goto":"epXX"},"b":{…}}
-    {"t":"goto","v":"ep04"}          次の話へ（無ければ「続く」）
+    {"t":"choice","q":"？","a":{"v":"…","goto":"epXX"},"b":{…}}  2択分岐
+    {"t":"goto","v":"ep35"}          次の話へ（未収録なら「続く」）
     {"t":"end","v":"fin"}            完結（タイトルへ）
+
+## 第二部・分岐を足すとき
+1. 本文をチャットへ貼る
+2. 生成された epXX.json を assets/scenario/ へ、新背景を assets/bg/ へ
+3. manifest.json の "episodes" に追記し、直前の話の末尾 end を goto へ変更
+4. 分岐は任意の位置に choice ノードを差し込むだけで機能します
