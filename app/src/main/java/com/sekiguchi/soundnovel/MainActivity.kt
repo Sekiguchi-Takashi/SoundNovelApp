@@ -48,6 +48,8 @@ class NovelView(ctx: Context) : View(ctx) {
         const val MODE_CHOICE = 2
         const val MODE_TITLECARD = 3
         const val MODE_END = 4
+        const val MODE_CHAPTERS = 5   // 章選択
+        const val MODE_PASSCODE = 6   // パスコード入力
         const val TYPE_INTERVAL = 28L
     }
 
@@ -57,6 +59,19 @@ class NovelView(ctx: Context) : View(ctx) {
     // ---- マニフェスト ----
     private var novelTitle = "サウンドノベル"
     private var startEpisode = "ep01"
+
+    // ---- 章 ----
+    private data class Chapter(val id: String, val title: String, val start: String,
+                              val lockedByDefault: Boolean, val passcode: String)
+    private val chapters = mutableListOf<Chapter>()
+    private val chapterRects = mutableListOf<RectF>()
+
+    // ---- パスコード入力 ----
+    private val padRects = Array(12) { RectF() }   // 0-9, ←, OK
+    private var passInput = ""
+    private var passError = false
+    private var passTargetChapter = 1              // どの章を解錠しようとしているか
+    private val backToTitleRect = RectF()
 
     // ---- 状態 ----
     private var mode = MODE_TITLE
@@ -129,7 +144,27 @@ class NovelView(ctx: Context) : View(ctx) {
                 .bufferedReader().use { it.readText() })
             novelTitle = j.optString("novelTitle", novelTitle)
             startEpisode = j.optString("start", startEpisode)
+            chapters.clear()
+            val arr = j.optJSONArray("chapters")
+            if (arr != null) {
+                for (i in 0 until arr.length()) {
+                    val c = arr.getJSONObject(i)
+                    chapters.add(Chapter(
+                        c.optString("id", "ch${i + 1}"),
+                        c.optString("title", "第${i + 1}章"),
+                        c.optString("start", startEpisode),
+                        c.optBoolean("locked", false),
+                        c.optString("passcode", "")
+                    ))
+                }
+            }
         } catch (_: Exception) {}
+    }
+
+    private fun isChapterUnlocked(idx: Int): Boolean {
+        if (idx < 0 || idx >= chapters.size) return false
+        if (!chapters[idx].lockedByDefault) return true
+        return prefs.getBoolean("unlock_${chapters[idx].id}", false)
     }
 
     private fun loadBitmap(name: String): Bitmap? = try {
@@ -156,12 +191,20 @@ class NovelView(ctx: Context) : View(ctx) {
 
     // ================= 進行 =================
 
-    private fun startGame(fromSave: Boolean) {
-        if (fromSave && prefs.contains("ep")) {
-            val ep = prefs.getString("ep", startEpisode) ?: startEpisode
-            val idx = prefs.getInt("idx", 0)
+    // 現在プレイ中の章index
+    private var currentChapter = 0
+
+    private fun epKey() = "ep_ch$currentChapter"
+    private fun idxKey() = "idx_ch$currentChapter"
+
+    // 章を指定して開始（続きがあれば再開）
+    private fun startChapter(chapterIdx: Int, fromSave: Boolean) {
+        currentChapter = chapterIdx
+        val chStart = if (chapters.isNotEmpty()) chapters[chapterIdx].start else startEpisode
+        if (fromSave && prefs.contains(epKey())) {
+            val ep = prefs.getString(epKey(), chStart) ?: chStart
+            val idx = prefs.getInt(idxKey(), 0)
             if (loadEpisode(ep, idx)) {
-                // 再開位置までの背景・環境音を復元
                 for (i in 0 until idx.coerceAtMost(nodes.length())) {
                     val nd = nodes.getJSONObject(i)
                     when (nd.optString("t")) {
@@ -172,13 +215,15 @@ class NovelView(ctx: Context) : View(ctx) {
                 mode = MODE_GAME; advanceNode()
             }
         } else {
-            if (loadEpisode(startEpisode, 0)) { mode = MODE_GAME; advanceNode() }
+            if (loadEpisode(chStart, 0)) { mode = MODE_GAME; advanceNode() }
         }
         invalidate()
     }
 
+    private fun hasChapterSave(chapterIdx: Int) = prefs.contains("ep_ch$chapterIdx")
+
     private fun saveProgress() {
-        prefs.edit().putString("ep", episodeId).putInt("idx", nodeIndex).apply()
+        prefs.edit().putString(epKey(), episodeId).putInt(idxKey(), nodeIndex).apply()
     }
 
     private fun advanceNode() {
@@ -235,7 +280,7 @@ class NovelView(ctx: Context) : View(ctx) {
         endLines = lines
         mode = MODE_END
         playSe("stop")
-        if (!keepSave) prefs.edit().clear().apply()
+        if (!keepSave) prefs.edit().remove(epKey()).remove(idxKey()).apply()
         invalidate()
     }
 
@@ -275,13 +320,14 @@ class NovelView(ctx: Context) : View(ctx) {
     }
 
     fun handleBack(): Boolean {
-        if (mode != MODE_TITLE) {
-            playSe("stop")
-            mode = MODE_TITLE
-            invalidate()
-            return true
+        when (mode) {
+            MODE_TITLE -> return false
+            MODE_PASSCODE -> { mode = MODE_CHAPTERS; passInput = ""; passError = false }
+            MODE_CHAPTERS -> { mode = MODE_TITLE }
+            else -> { playSe("stop"); mode = MODE_TITLE }
         }
-        return false
+        invalidate()
+        return true
     }
 
     // ================= テキスト整形 =================
@@ -322,12 +368,20 @@ class NovelView(ctx: Context) : View(ctx) {
         val x = event.x; val y = event.y
         when (mode) {
             MODE_TITLE -> {
-                val hasSave = prefs.contains("ep")
-                val yStart = height * 0.62f
-                if (y in yStart..(yStart + height * 0.075f)) {
-                    startGame(false)
-                } else if (hasSave && y in (yStart + height * 0.10f)..(yStart + height * 0.175f)) {
-                    startGame(true)
+                for (i in titleBtnRects.indices) {
+                    if (titleBtnRects[i].contains(x, y)) { onTitleButton(i); break }
+                }
+            }
+            MODE_CHAPTERS -> {
+                if (backToTitleRect.contains(x, y)) { mode = MODE_TITLE }
+                else for (i in chapterRects.indices) {
+                    if (chapterRects[i].contains(x, y)) { onChapterTap(i); break }
+                }
+            }
+            MODE_PASSCODE -> {
+                if (backToTitleRect.contains(x, y)) { mode = MODE_CHAPTERS; passInput = ""; passError = false }
+                else for (i in padRects.indices) {
+                    if (padRects[i].contains(x, y)) { onPadTap(i); break }
                 }
             }
             MODE_TITLECARD -> { mode = MODE_GAME; advanceNode() }
@@ -349,12 +403,60 @@ class NovelView(ctx: Context) : View(ctx) {
         return true
     }
 
+    // タイトル画面のボタン: 0=はじめから, 1=つづきから, 2=章を選ぶ, 3=パスコード入力
+    private val titleBtnRects = Array(4) { RectF() }
+
+    private fun onTitleButton(i: Int) {
+        when (i) {
+            0 -> startChapter(0, false)                       // 第一章 最初から
+            1 -> if (hasChapterSave(0)) startChapter(0, true) // 第一章 つづき
+            2 -> { mode = MODE_CHAPTERS }                     // 章選択へ
+            3 -> { passTargetChapter = firstLockedChapter(); passInput = ""; passError = false; mode = MODE_PASSCODE }
+        }
+    }
+
+    private fun firstLockedChapter(): Int {
+        for (i in chapters.indices) if (chapters[i].lockedByDefault && !isChapterUnlocked(i)) return i
+        // すべて解錠済みなら最後のロック章
+        for (i in chapters.indices.reversed()) if (chapters[i].lockedByDefault) return i
+        return if (chapters.size > 1) 1 else 0
+    }
+
+    private fun onChapterTap(i: Int) {
+        if (isChapterUnlocked(i)) {
+            startChapter(i, hasChapterSave(i))
+        } else {
+            passTargetChapter = i; passInput = ""; passError = false; mode = MODE_PASSCODE
+        }
+    }
+
+    private fun onPadTap(i: Int) {
+        passError = false
+        when (i) {
+            in 0..9 -> if (passInput.length < 4) passInput += i.toString()
+            10 -> if (passInput.isNotEmpty()) passInput = passInput.dropLast(1)  // ←
+            11 -> submitPasscode()                                               // OK
+        }
+    }
+
+    private fun submitPasscode() {
+        val ch = chapters.getOrNull(passTargetChapter) ?: return
+        if (passInput == ch.passcode && ch.passcode.isNotEmpty()) {
+            prefs.edit().putBoolean("unlock_${ch.id}", true).apply()
+            startChapter(passTargetChapter, hasChapterSave(passTargetChapter))
+        } else {
+            passError = true; passInput = ""
+        }
+    }
+
     // ================= 描画 =================
 
     override fun onDraw(canvas: Canvas) {
         canvas.drawColor(Color.BLACK)
         when (mode) {
             MODE_TITLE -> drawTitle(canvas)
+            MODE_CHAPTERS -> drawChapters(canvas)
+            MODE_PASSCODE -> drawPasscode(canvas)
             MODE_TITLECARD -> drawTitleCard(canvas)
             MODE_GAME -> { drawBg(canvas); drawTextPage(canvas) }
             MODE_CHOICE -> { drawBg(canvas); drawChoice(canvas) }
@@ -405,34 +507,208 @@ class NovelView(ctx: Context) : View(ctx) {
         }
     }
 
+    private fun drawMenuButton(canvas: Canvas, r: RectF, label: String, enabled: Boolean, accent: Boolean = false) {
+        paintUi.style = Paint.Style.FILL
+        paintUi.color = if (enabled) Color.argb(205, 22, 18, 24) else Color.argb(120, 22, 18, 24)
+        canvas.drawRoundRect(r, 20f, 20f, paintUi)
+        paintUi.style = Paint.Style.STROKE
+        paintUi.strokeWidth = 3.5f
+        paintUi.color = when {
+            !enabled -> Color.argb(70, 200, 200, 200)
+            accent -> Color.rgb(210, 160, 70)
+            else -> Color.rgb(190, 75, 55)
+        }
+        canvas.drawRoundRect(r, 20f, 20f, paintUi)
+        paintUi.style = Paint.Style.FILL
+        paintUi.textAlign = Paint.Align.CENTER
+        paintUi.color = if (enabled) Color.WHITE else Color.argb(110, 255, 255, 255)
+        var ts = width * 0.046f
+        paintUi.textSize = ts
+        val maxW = r.width() - width * 0.04f
+        while (paintUi.measureText(label) > maxW && ts > width * 0.028f) {
+            ts -= width * 0.003f; paintUi.textSize = ts
+        }
+        canvas.drawText(label, r.centerX(), r.centerY() + paintUi.textSize / 3f, paintUi)
+    }
+
     private fun drawTitle(canvas: Canvas) {
-        drawBg(canvas, titleBg, 100)
+        drawBg(canvas, titleBg, 105)
         paintUi.textAlign = Paint.Align.CENTER
         paintUi.typeface = Typeface.create(Typeface.SERIF, Typeface.BOLD)
         paintUi.setShadowLayer(10f, 0f, 4f, Color.BLACK)
         paintUi.color = Color.rgb(235, 225, 215)
         paintUi.textSize = width * 0.035f
-        canvas.drawText("サウンドノベル", width / 2f, height * 0.30f, paintUi)
+        canvas.drawText("サウンドノベル", width / 2f, height * 0.24f, paintUi)
         paintUi.textSize = width * 0.095f
-        canvas.drawText(novelTitle, width / 2f, height * 0.38f, paintUi)
+        canvas.drawText(novelTitle, width / 2f, height * 0.32f, paintUi)
         paintUi.color = Color.rgb(200, 70, 50)
         paintUi.textSize = width * 0.03f
-        canvas.drawText("──────  ◆  ──────", width / 2f, height * 0.44f, paintUi)
+        canvas.drawText("──────  ◆  ──────", width / 2f, height * 0.375f, paintUi)
+        paintUi.clearShadowLayer()
 
-        val hasSave = prefs.contains("ep")
+        val bw = width * 0.66f
+        val bh = height * 0.072f
+        val cx = width / 2f
+        val ys = height * 0.50f
+        val gap = height * 0.095f
+        for (i in 0 until 4) titleBtnRects[i].set(cx - bw / 2, ys + gap * i, cx + bw / 2, ys + gap * i + bh)
+
         paintUi.typeface = Typeface.create(Typeface.SERIF, Typeface.NORMAL)
-        paintUi.textSize = width * 0.052f
-        val yStart = height * 0.62f
-        paintUi.color = Color.WHITE
-        canvas.drawText("はじめから", width / 2f, yStart + height * 0.05f, paintUi)
-        paintUi.color = if (hasSave) Color.WHITE else Color.argb(90, 255, 255, 255)
-        canvas.drawText("つづきから", width / 2f, yStart + height * 0.15f, paintUi)
+        drawMenuButton(canvas, titleBtnRects[0], "はじめから", true)
+        drawMenuButton(canvas, titleBtnRects[1], "つづきから", hasChapterSave(0))
+        drawMenuButton(canvas, titleBtnRects[2], "章を選ぶ", true)
+        drawMenuButton(canvas, titleBtnRects[3], "人狼スマホのパスコードは？", true, accent = true)
 
         paintUi.color = Color.argb(140, 255, 255, 255)
         paintUi.textSize = width * 0.028f
-        canvas.drawText("画面タップで物語が進みます", width / 2f, height * 0.92f, paintUi)
+        canvas.drawText("画面タップで物語が進みます", width / 2f, height * 0.95f, paintUi)
         paintUi.textAlign = Paint.Align.LEFT
+    }
+
+    private fun drawBackButton(canvas: Canvas) {
+        val bw = width * 0.34f
+        val bh = height * 0.06f
+        backToTitleRect.set(width / 2f - bw / 2, height * 0.9f, width / 2f + bw / 2, height * 0.9f + bh)
+        paintUi.style = Paint.Style.STROKE
+        paintUi.strokeWidth = 3f
+        paintUi.color = Color.argb(150, 210, 210, 210)
+        canvas.drawRoundRect(backToTitleRect, 18f, 18f, paintUi)
+        paintUi.style = Paint.Style.FILL
+        paintUi.textAlign = Paint.Align.CENTER
+        paintUi.color = Color.argb(210, 235, 235, 235)
+        paintUi.textSize = width * 0.038f
+        canvas.drawText("← 戻る", backToTitleRect.centerX(),
+            backToTitleRect.centerY() + paintUi.textSize / 3f, paintUi)
+        paintUi.textAlign = Paint.Align.LEFT
+    }
+
+    private fun drawChapters(canvas: Canvas) {
+        drawBg(canvas, titleBg, 150)
+        paintUi.textAlign = Paint.Align.CENTER
+        paintUi.typeface = Typeface.create(Typeface.SERIF, Typeface.BOLD)
+        paintUi.setShadowLayer(8f, 0f, 3f, Color.BLACK)
+        paintUi.color = Color.rgb(232, 224, 214)
+        paintUi.textSize = width * 0.06f
+        canvas.drawText("章を選ぶ", width / 2f, height * 0.16f, paintUi)
         paintUi.clearShadowLayer()
+        paintUi.typeface = Typeface.create(Typeface.SERIF, Typeface.NORMAL)
+
+        chapterRects.clear()
+        val bw = width * 0.78f
+        val bh = height * 0.11f
+        val cx = width / 2f
+        var y = height * 0.26f
+        for (i in chapters.indices) {
+            val r = RectF(cx - bw / 2, y, cx + bw / 2, y + bh)
+            chapterRects.add(r)
+            val unlocked = isChapterUnlocked(i)
+            paintUi.style = Paint.Style.FILL
+            paintUi.color = if (unlocked) Color.argb(205, 24, 20, 26) else Color.argb(150, 18, 16, 20)
+            canvas.drawRoundRect(r, 20f, 20f, paintUi)
+            paintUi.style = Paint.Style.STROKE
+            paintUi.strokeWidth = 3.5f
+            paintUi.color = if (unlocked) Color.rgb(190, 90, 60) else Color.argb(120, 150, 150, 150)
+            canvas.drawRoundRect(r, 20f, 20f, paintUi)
+            paintUi.style = Paint.Style.FILL
+            paintUi.textAlign = Paint.Align.CENTER
+            paintUi.color = if (unlocked) Color.WHITE else Color.argb(150, 220, 220, 220)
+            paintUi.textSize = width * 0.05f
+            canvas.drawText(chapters[i].title, cx, r.centerY() + paintUi.textSize / 3f - height * 0.005f, paintUi)
+            paintUi.textSize = width * 0.03f
+            paintUi.color = if (unlocked) Color.argb(160, 220, 220, 220) else Color.rgb(210, 170, 90)
+            val sub = when {
+                unlocked && hasChapterSave(i) -> "つづきから再開できます"
+                unlocked -> "タップして開始"
+                else -> "🔒 パスコードが必要です"
+            }
+            canvas.drawText(sub, cx, r.bottom - height * 0.02f, paintUi)
+            y += bh + height * 0.03f
+        }
+        paintUi.textAlign = Paint.Align.LEFT
+        drawBackButton(canvas)
+    }
+
+    private fun drawPasscode(canvas: Canvas) {
+        drawBg(canvas, titleBg, 165)
+        paintUi.textAlign = Paint.Align.CENTER
+        paintUi.typeface = Typeface.create(Typeface.SERIF, Typeface.BOLD)
+        paintUi.setShadowLayer(8f, 0f, 3f, Color.BLACK)
+        paintUi.color = Color.rgb(232, 224, 214)
+        paintUi.textSize = width * 0.055f
+        canvas.drawText("人狼スマホのパスコード", width / 2f, height * 0.13f, paintUi)
+        paintUi.clearShadowLayer()
+        paintUi.typeface = Typeface.create(Typeface.SERIF, Typeface.NORMAL)
+        paintUi.color = Color.argb(160, 225, 225, 225)
+        paintUi.textSize = width * 0.032f
+        val chName = chapters.getOrNull(passTargetChapter)?.title ?: ""
+        canvas.drawText("$chName を解錠します", width / 2f, height * 0.18f, paintUi)
+
+        // 4桁ディスプレイ
+        val boxW = width * 0.12f
+        val gap = width * 0.04f
+        val totalW = boxW * 4 + gap * 3
+        var bx = width / 2f - totalW / 2
+        val by = height * 0.24f
+        for (i in 0 until 4) {
+            val r = RectF(bx, by, bx + boxW, by + boxW * 1.25f)
+            paintUi.style = Paint.Style.FILL
+            paintUi.color = Color.argb(210, 18, 16, 22)
+            canvas.drawRoundRect(r, 12f, 12f, paintUi)
+            paintUi.style = Paint.Style.STROKE
+            paintUi.strokeWidth = 3f
+            paintUi.color = if (passError) Color.rgb(200, 70, 60) else Color.rgb(190, 150, 80)
+            canvas.drawRoundRect(r, 12f, 12f, paintUi)
+            paintUi.style = Paint.Style.FILL
+            paintUi.color = Color.WHITE
+            paintUi.textSize = width * 0.075f
+            val ch = if (i < passInput.length) "●" else ""
+            canvas.drawText(ch, r.centerX(), r.centerY() + paintUi.textSize / 3f, paintUi)
+            bx += boxW + gap
+        }
+        if (passError) {
+            paintUi.color = Color.rgb(220, 90, 80)
+            paintUi.textSize = width * 0.034f
+            canvas.drawText("パスコードが違います", width / 2f, height * 0.375f, paintUi)
+        }
+
+        // テンキー 3x4 (1-9, ←, 0, OK)
+        val padW = width * 0.20f
+        val padH = height * 0.075f
+        val gx = width * 0.04f
+        val gy = height * 0.018f
+        val startX = width / 2f - (padW * 3 + gx * 2) / 2
+        val startY = height * 0.44f
+        val layout = listOf(
+            "1" to 1, "2" to 2, "3" to 3,
+            "4" to 4, "5" to 5, "6" to 6,
+            "7" to 7, "8" to 8, "9" to 9,
+            "←" to 10, "0" to 0, "OK" to 11
+        )
+        for ((k, pair) in layout.withIndex()) {
+            val (label, code) = pair
+            val col = k % 3; val row = k / 3
+            val rx = startX + col * (padW + gx)
+            val ry = startY + row * (padH + gy)
+            val r = RectF(rx, ry, rx + padW, ry + padH)
+            padRects[code].set(r)
+            paintUi.style = Paint.Style.FILL
+            paintUi.color = when (code) {
+                11 -> Color.argb(220, 60, 90, 60)
+                10 -> Color.argb(220, 90, 60, 60)
+                else -> Color.argb(215, 30, 28, 34)
+            }
+            canvas.drawRoundRect(r, 16f, 16f, paintUi)
+            paintUi.style = Paint.Style.STROKE
+            paintUi.strokeWidth = 2.5f
+            paintUi.color = Color.argb(150, 200, 200, 200)
+            canvas.drawRoundRect(r, 16f, 16f, paintUi)
+            paintUi.style = Paint.Style.FILL
+            paintUi.color = Color.WHITE
+            paintUi.textSize = width * 0.055f
+            canvas.drawText(label, r.centerX(), r.centerY() + paintUi.textSize / 3f, paintUi)
+        }
+        paintUi.textAlign = Paint.Align.LEFT
+        drawBackButton(canvas)
     }
 
     private fun drawTitleCard(canvas: Canvas) {
