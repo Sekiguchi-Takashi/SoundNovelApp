@@ -11,8 +11,8 @@ android {
         applicationId = "com.sekiguchi.soundnovel"
         minSdk = 26
         targetSdk = 34
-        versionCode = 6
-        versionName = "4.0"
+        versionCode = 7
+        versionName = "4.1"
     }
 
     signingConfigs {

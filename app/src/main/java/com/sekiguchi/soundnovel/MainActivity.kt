@@ -50,6 +50,8 @@ class NovelView(ctx: Context) : View(ctx) {
         const val MODE_END = 4
         const val MODE_CHAPTERS = 5   // 章選択
         const val MODE_PASSCODE = 6   // パスコード入力
+        const val MODE_ENDING = 7     // エンドカード表示
+        const val MODE_COLLECTION = 8 // エンドコレクション
         const val TYPE_INTERVAL = 28L
     }
 
@@ -73,6 +75,19 @@ class NovelView(ctx: Context) : View(ctx) {
     private var passTargetChapter = 1              // どの章を解錠しようとしているか
     private var fromChapterSelect = false          // 章選択のロック章タップから来たか
     private val backToTitleRect = RectF()
+
+    // ---- エンディング ----
+    private data class EndingDef(val id: String, val label: String, val name: String, val desc: String)
+    // 全エンド一覧（コレクション表示用。未取得は ??? 表示）
+    private val allEndings = listOf(
+        EndingDef("toru1", "透エンド1", "普通の大学生活", "駅で一晩を明かし、何事もなく日常へ戻った。"),
+        EndingDef("toru2", "透エンド2", "気まずい2人", "梨花を探さずに眠り、幼なじみとの距離が戻らなくなった。"),
+        EndingDef("true1", "第一章 完", "十分の一", "透編を最後まで見届けた。")
+    )
+    private var endLabel = ""
+    private var endName = ""
+    private var endDesc = ""
+    private var endIsNew = false
 
     // ---- 状態 ----
     private var mode = MODE_TITLE
@@ -273,6 +288,20 @@ class NovelView(ctx: Context) : View(ctx) {
                     showEnd(listOf("── 了 ──", "", "もう一つの結末を、あなたは見た。"), keepSave = false)
                     return
                 }
+                "ending" -> {
+                    val id = node.optString("id")
+                    endLabel = node.optString("label")
+                    endName = node.optString("name")
+                    endDesc = node.optString("desc")
+                    endIsNew = !prefs.getBoolean("ending_$id", false)
+                    if (id.isNotEmpty()) prefs.edit().putBoolean("ending_$id", true).apply()
+                    // このルートは終了。章の途中セーブは消す
+                    prefs.edit().remove(epKey()).remove(idxKey()).apply()
+                    playSe("stop")
+                    mode = MODE_ENDING
+                    invalidate()
+                    return
+                }
             }
         }
     }
@@ -325,6 +354,8 @@ class NovelView(ctx: Context) : View(ctx) {
             MODE_TITLE -> return false
             MODE_PASSCODE -> { mode = MODE_CHAPTERS; passInput = ""; passError = false }
             MODE_CHAPTERS -> { mode = MODE_TITLE }
+            MODE_COLLECTION -> { mode = MODE_TITLE }
+            MODE_ENDING -> { mode = MODE_COLLECTION }
             else -> { playSe("stop"); mode = MODE_TITLE }
         }
         invalidate()
@@ -395,17 +426,30 @@ class NovelView(ctx: Context) : View(ctx) {
                 }
             }
             MODE_CHOICE -> {
-                if (rectA.contains(x, y)) { playSe("stop"); if (loadEpisode(gotoA, 0)) { mode = MODE_GAME; advanceNode() } }
-                else if (rectB.contains(x, y)) { playSe("stop"); if (loadEpisode(gotoB, 0)) { mode = MODE_GAME; advanceNode() } }
+                if (rectA.contains(x, y)) takeBranch(gotoA)
+                else if (rectB.contains(x, y)) takeBranch(gotoB)
             }
             MODE_END -> { playSe("stop"); mode = MODE_TITLE }
+            MODE_ENDING -> { mode = MODE_COLLECTION }
+            MODE_COLLECTION -> { if (backToTitleRect.contains(x, y)) mode = MODE_TITLE }
         }
         invalidate()
         return true
     }
 
-    // タイトル画面のボタン: 0=はじめから, 1=つづきから, 2=章を選ぶ, 3=パスコード入力
-    private val titleBtnRects = Array(4) { RectF() }
+    // 分岐先へ進む。goto が現在の話と同じなら「その場で続行」＝正常ルート
+    private fun takeBranch(target: String) {
+        if (target == episodeId || target.isEmpty()) {
+            mode = MODE_GAME
+            advanceNode()
+        } else {
+            playSe("stop")
+            if (loadEpisode(target, 0)) { mode = MODE_GAME; advanceNode() }
+        }
+    }
+
+    // タイトル画面のボタン: 0=はじめから, 1=つづきから, 2=章を選ぶ, 3=パスコード入力, 4=エンドコレクション
+    private val titleBtnRects = Array(5) { RectF() }
 
     private fun onTitleButton(i: Int) {
         when (i) {
@@ -413,6 +457,7 @@ class NovelView(ctx: Context) : View(ctx) {
             1 -> if (hasChapterSave(0)) startChapter(0, true) // 第一章 つづき
             2 -> { mode = MODE_CHAPTERS }                     // 章選択へ
             3 -> { fromChapterSelect = false; passTargetChapter = firstLockedChapter(); passInput = ""; passError = false; mode = MODE_PASSCODE }
+            4 -> { mode = MODE_COLLECTION }                   // エンドコレクション
         }
     }
 
@@ -474,6 +519,8 @@ class NovelView(ctx: Context) : View(ctx) {
             MODE_GAME -> { drawBg(canvas); drawTextPage(canvas) }
             MODE_CHOICE -> { drawBg(canvas); drawChoice(canvas) }
             MODE_END -> drawEnd(canvas)
+            MODE_ENDING -> drawEndingCard(canvas)
+            MODE_COLLECTION -> drawCollection(canvas)
         }
     }
 
@@ -560,17 +607,19 @@ class NovelView(ctx: Context) : View(ctx) {
         paintUi.clearShadowLayer()
 
         val bw = width * 0.66f
-        val bh = height * 0.072f
+        val bh = height * 0.066f
         val cx = width / 2f
-        val ys = height * 0.50f
-        val gap = height * 0.095f
-        for (i in 0 until 4) titleBtnRects[i].set(cx - bw / 2, ys + gap * i, cx + bw / 2, ys + gap * i + bh)
+        val ys = height * 0.46f
+        val gap = height * 0.087f
+        for (i in 0 until 5) titleBtnRects[i].set(cx - bw / 2, ys + gap * i, cx + bw / 2, ys + gap * i + bh)
 
         paintUi.typeface = Typeface.create(Typeface.SERIF, Typeface.NORMAL)
         drawMenuButton(canvas, titleBtnRects[0], "はじめから", true)
         drawMenuButton(canvas, titleBtnRects[1], "つづきから", hasChapterSave(0))
         drawMenuButton(canvas, titleBtnRects[2], "章を選ぶ", true)
         drawMenuButton(canvas, titleBtnRects[3], "人狼スマホのパスコードは？", true, accent = true)
+        val got = allEndings.count { prefs.getBoolean("ending_${it.id}", false) }
+        drawMenuButton(canvas, titleBtnRects[4], "エンドコレクション（$got/${allEndings.size}）", true)
 
         paintUi.color = Color.argb(140, 255, 255, 255)
         paintUi.textSize = width * 0.028f
@@ -772,6 +821,117 @@ class NovelView(ctx: Context) : View(ctx) {
         paintUi.textAlign = Paint.Align.LEFT
         paintUi.typeface = Typeface.create(Typeface.SERIF, Typeface.NORMAL)
         paintUi.clearShadowLayer()
+    }
+
+    private fun drawEndingCard(canvas: Canvas) {
+        canvas.drawColor(Color.BLACK)
+        drawBg(canvas, bgBitmap, 190)
+        val cx = width / 2f
+        // 額縁
+        val fr = RectF(width * 0.10f, height * 0.28f, width * 0.90f, height * 0.66f)
+        paintUi.style = Paint.Style.FILL
+        paintUi.color = Color.argb(225, 16, 13, 18)
+        canvas.drawRoundRect(fr, 24f, 24f, paintUi)
+        paintUi.style = Paint.Style.STROKE
+        paintUi.strokeWidth = 5f
+        paintUi.color = Color.rgb(205, 165, 85)
+        canvas.drawRoundRect(fr, 24f, 24f, paintUi)
+        paintUi.strokeWidth = 2f
+        canvas.drawRoundRect(RectF(fr.left + 12, fr.top + 12, fr.right - 12, fr.bottom - 12), 18f, 18f, paintUi)
+        paintUi.style = Paint.Style.FILL
+
+        paintUi.textAlign = Paint.Align.CENTER
+        paintUi.typeface = Typeface.create(Typeface.SERIF, Typeface.BOLD)
+        if (endIsNew) {
+            paintUi.color = Color.rgb(230, 190, 90)
+            paintUi.textSize = width * 0.034f
+            canvas.drawText("NEW ENDING", cx, fr.top + height * 0.05f, paintUi)
+        }
+        paintUi.color = Color.rgb(220, 195, 140)
+        paintUi.textSize = width * 0.042f
+        canvas.drawText(endLabel, cx, fr.top + height * 0.105f, paintUi)
+        paintUi.color = Color.WHITE
+        paintUi.textSize = width * 0.072f
+        canvas.drawText(endName, cx, fr.top + height * 0.185f, paintUi)
+        paintUi.color = Color.rgb(180, 90, 60)
+        paintUi.textSize = width * 0.028f
+        canvas.drawText("──────  ◆  ──────", cx, fr.top + height * 0.225f, paintUi)
+        paintUi.typeface = Typeface.create(Typeface.SERIF, Typeface.NORMAL)
+        paintUi.color = Color.argb(200, 230, 230, 230)
+        paintUi.textSize = width * 0.033f
+        var ty = fr.top + height * 0.275f
+        for (seg in wrap(endDesc, paintUi, fr.width() - width * 0.10f)) {
+            canvas.drawText(seg, cx, ty, paintUi)
+            ty += paintUi.textSize * 1.6f
+        }
+        paintUi.color = Color.argb(140, 255, 255, 255)
+        paintUi.textSize = width * 0.03f
+        canvas.drawText("タップしてコレクションへ", cx, height * 0.78f, paintUi)
+        paintUi.textAlign = Paint.Align.LEFT
+    }
+
+    private fun drawCollection(canvas: Canvas) {
+        drawBg(canvas, titleBg, 165)
+        val cx = width / 2f
+        paintUi.textAlign = Paint.Align.CENTER
+        paintUi.typeface = Typeface.create(Typeface.SERIF, Typeface.BOLD)
+        paintUi.setShadowLayer(8f, 0f, 3f, Color.BLACK)
+        paintUi.color = Color.rgb(232, 224, 214)
+        paintUi.textSize = width * 0.058f
+        canvas.drawText("エンドコレクション", cx, height * 0.12f, paintUi)
+        paintUi.clearShadowLayer()
+        val got = allEndings.count { prefs.getBoolean("ending_${it.id}", false) }
+        paintUi.typeface = Typeface.create(Typeface.SERIF, Typeface.NORMAL)
+        paintUi.color = Color.rgb(210, 170, 90)
+        paintUi.textSize = width * 0.036f
+        canvas.drawText("$got / ${allEndings.size} 種類", cx, height * 0.165f, paintUi)
+
+        val bw = width * 0.82f
+        val bh = height * 0.115f
+        var y = height * 0.22f
+        for (e in allEndings) {
+            val unlocked = prefs.getBoolean("ending_${e.id}", false)
+            val r = RectF(cx - bw / 2, y, cx + bw / 2, y + bh)
+            paintUi.style = Paint.Style.FILL
+            paintUi.color = if (unlocked) Color.argb(215, 24, 20, 26) else Color.argb(150, 16, 15, 18)
+            canvas.drawRoundRect(r, 18f, 18f, paintUi)
+            paintUi.style = Paint.Style.STROKE
+            paintUi.strokeWidth = 3f
+            paintUi.color = if (unlocked) Color.rgb(205, 165, 85) else Color.argb(90, 150, 150, 150)
+            canvas.drawRoundRect(r, 18f, 18f, paintUi)
+            paintUi.style = Paint.Style.FILL
+            paintUi.textAlign = Paint.Align.LEFT
+            val lx = r.left + width * 0.045f
+            if (unlocked) {
+                paintUi.color = Color.rgb(215, 180, 110)
+                paintUi.textSize = width * 0.03f
+                canvas.drawText(e.label, lx, r.top + height * 0.032f, paintUi)
+                paintUi.color = Color.WHITE
+                paintUi.textSize = width * 0.046f
+                canvas.drawText(e.name, lx, r.top + height * 0.072f, paintUi)
+                paintUi.color = Color.argb(150, 220, 220, 220)
+                paintUi.textSize = width * 0.026f
+                val d1 = wrap(e.desc, paintUi, bw - width * 0.09f)
+                canvas.drawText(d1.firstOrNull() ?: "", lx, r.top + height * 0.100f, paintUi)
+            } else {
+                paintUi.color = Color.argb(120, 200, 200, 200)
+                paintUi.textSize = width * 0.03f
+                canvas.drawText(e.label, lx, r.top + height * 0.032f, paintUi)
+                paintUi.color = Color.argb(150, 210, 210, 210)
+                paintUi.textSize = width * 0.046f
+                canvas.drawText("？？？？？", lx, r.top + height * 0.072f, paintUi)
+                paintUi.color = Color.argb(110, 200, 200, 200)
+                paintUi.textSize = width * 0.026f
+                canvas.drawText("まだ見ていない結末", lx, r.top + height * 0.100f, paintUi)
+            }
+            y += bh + height * 0.022f
+        }
+        paintUi.textAlign = Paint.Align.CENTER
+        paintUi.color = Color.argb(130, 230, 230, 230)
+        paintUi.textSize = width * 0.026f
+        canvas.drawText("選択肢を変えると、別の結末にたどり着けます", cx, height * 0.855f, paintUi)
+        paintUi.textAlign = Paint.Align.LEFT
+        drawBackButton(canvas)
     }
 
     private fun drawEnd(canvas: Canvas) {
