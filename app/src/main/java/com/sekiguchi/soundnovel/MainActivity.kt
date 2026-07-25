@@ -71,6 +71,7 @@ class NovelView(ctx: Context) : View(ctx) {
     private var passInput = ""
     private var passError = false
     private var passTargetChapter = 1              // どの章を解錠しようとしているか
+    private var fromChapterSelect = false          // 章選択のロック章タップから来たか
     private val backToTitleRect = RectF()
 
     // ---- 状態 ----
@@ -411,7 +412,7 @@ class NovelView(ctx: Context) : View(ctx) {
             0 -> startChapter(0, false)                       // 第一章 最初から
             1 -> if (hasChapterSave(0)) startChapter(0, true) // 第一章 つづき
             2 -> { mode = MODE_CHAPTERS }                     // 章選択へ
-            3 -> { passTargetChapter = firstLockedChapter(); passInput = ""; passError = false; mode = MODE_PASSCODE }
+            3 -> { fromChapterSelect = false; passTargetChapter = firstLockedChapter(); passInput = ""; passError = false; mode = MODE_PASSCODE }
         }
     }
 
@@ -426,7 +427,7 @@ class NovelView(ctx: Context) : View(ctx) {
         if (isChapterUnlocked(i)) {
             startChapter(i, hasChapterSave(i))
         } else {
-            passTargetChapter = i; passInput = ""; passError = false; mode = MODE_PASSCODE
+            fromChapterSelect = true; passTargetChapter = i; passInput = ""; passError = false; mode = MODE_PASSCODE
         }
     }
 
@@ -440,10 +441,22 @@ class NovelView(ctx: Context) : View(ctx) {
     }
 
     private fun submitPasscode() {
-        val ch = chapters.getOrNull(passTargetChapter) ?: return
-        if (passInput == ch.passcode && ch.passcode.isNotEmpty()) {
-            prefs.edit().putBoolean("unlock_${ch.id}", true).apply()
-            startChapter(passTargetChapter, hasChapterSave(passTargetChapter))
+        // 入力コードに一致するロック章を探す（トップの共通入力に対応）
+        var matched = -1
+        for (i in chapters.indices) {
+            val c = chapters[i]
+            if (c.lockedByDefault && c.passcode.isNotEmpty() && passInput == c.passcode) {
+                matched = i; break
+            }
+        }
+        // 章選択から特定章の解錠を求められた場合はその章のみ許可
+        if (fromChapterSelect && matched != passTargetChapter) {
+            val c = chapters.getOrNull(passTargetChapter)
+            matched = if (c != null && passInput == c.passcode && c.passcode.isNotEmpty()) passTargetChapter else -1
+        }
+        if (matched >= 0) {
+            prefs.edit().putBoolean("unlock_${chapters[matched].id}", true).apply()
+            startChapter(matched, hasChapterSave(matched))
         } else {
             passError = true; passInput = ""
         }
@@ -640,8 +653,11 @@ class NovelView(ctx: Context) : View(ctx) {
         paintUi.typeface = Typeface.create(Typeface.SERIF, Typeface.NORMAL)
         paintUi.color = Color.argb(160, 225, 225, 225)
         paintUi.textSize = width * 0.032f
-        val chName = chapters.getOrNull(passTargetChapter)?.title ?: ""
-        canvas.drawText("$chName を解錠します", width / 2f, height * 0.18f, paintUi)
+        val subMsg = if (fromChapterSelect)
+            "${chapters.getOrNull(passTargetChapter)?.title ?: ""} を解錠します"
+        else
+            "正しいコードを入力すると章が開きます"
+        canvas.drawText(subMsg, width / 2f, height * 0.18f, paintUi)
 
         // 4桁ディスプレイ
         val boxW = width * 0.12f
