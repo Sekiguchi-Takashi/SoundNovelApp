@@ -55,6 +55,7 @@ class NovelView(ctx: Context) : View(ctx) {
         const val MODE_EPISODES = 9   // 話選択（3章クリア後に解放）
         const val MODE_SAVE = 10      // セーブスロット選択
         const val MODE_LOAD = 11      // ロードスロット選択
+        const val MODE_MORPH = 12     // 画像クロスフェード演出
         const val SLOT_COUNT = 3
         const val TYPE_INTERVAL = 28L
     }
@@ -87,6 +88,12 @@ class NovelView(ctx: Context) : View(ctx) {
     private var slotMessage = ""               // 「セーブしました」等の一時表示
     private var slotMessageAt = 0L
 
+    // ---- モーフィング演出 ----
+    private var morphFrom: Bitmap? = null
+    private var morphTo: Bitmap? = null
+    private var morphProgress = 0f             // 0..1
+    private var morphDone = false
+
     // ---- パスコード入力 ----
     private val padRects = Array(12) { RectF() }   // 0-9, ←, OK
     private var passInput = ""
@@ -102,7 +109,9 @@ class NovelView(ctx: Context) : View(ctx) {
         EndingDef("toru1", "透エンド1", "普通の大学生活", "駅で一晩を明かし、何事もなく日常へ戻った。"),
         EndingDef("toru2", "透エンド2", "気まずい2人", "梨花を探さずに眠り、幼なじみとの距離が戻らなくなった。"),
         EndingDef("true1", "第一章 完", "十分の一", "透編を最後まで見届けた。"),
-        EndingDef("ch3clear", "第三章 完", "茜の答え", "茜編を最後まで見届けた。")
+        EndingDef("ch2clear", "第二章 完", "帰るという選択", "篤史編を最後まで見届けた。"),
+        EndingDef("ch3clear", "第三章 完", "茜の答え", "茜編を最後まで見届けた。"),
+        EndingDef("ch4clear", "第四章 完", "もう一つの世界", "梨花編を見届け、すべての物語が一つに繋がった。")
     )
     private var endLabel = ""
     private var endName = ""
@@ -169,6 +178,11 @@ class NovelView(ctx: Context) : View(ctx) {
             blink += 0.09f
             if (mode == MODE_GAME && !typing) dirty = true
             if (mode == MODE_CHOICE && !choiceRevealed) dirty = true
+            if (mode == MODE_MORPH && !morphDone) {
+                morphProgress += 0.006f          // 約5秒でクロスフェード
+                if (morphProgress >= 1f) { morphProgress = 1f; morphDone = true }
+                dirty = true
+            }
             if (dirty) invalidate()
             handler.postDelayed(this, TYPE_INTERVAL)
         }
@@ -279,8 +293,10 @@ class NovelView(ctx: Context) : View(ctx) {
 
     // 第三章を最後まで読むと話選択が解放される
     private fun isEpisodeSelectUnlocked(): Boolean {
-        val last = chapters.lastOrNull() ?: return false
-        return prefs.getBoolean("cleared_${last.id}", false)
+        if (prefs.getBoolean("cleared_ch3", false)) return true
+        // 章構成が変わっても動くよう、いずれかの章クリアでも解放
+        for (c in chapters) if (prefs.getBoolean("cleared_${c.id}", false)) return true
+        return false
     }
 
     // 話を直接指定して開始
@@ -423,6 +439,18 @@ class NovelView(ctx: Context) : View(ctx) {
                     showEnd(listOf("── 了 ──", "", "もう一つの結末を、あなたは見た。"), keepSave = false)
                     return
                 }
+                "morph" -> {
+                    morphFrom = loadBitmap(node.optString("from"))
+                    morphTo = loadBitmap(node.optString("to"))
+                    val nse = node.optString("se")
+                    if (nse.isNotEmpty()) playSe(nse)
+                    morphProgress = 0f
+                    morphDone = false
+                    mode = MODE_MORPH
+                    saveProgress()
+                    invalidate()
+                    return
+                }
                 "ending" -> {
                     val id = node.optString("id")
                     endLabel = node.optString("label")
@@ -496,6 +524,7 @@ class NovelView(ctx: Context) : View(ctx) {
             MODE_EPISODES -> { mode = MODE_CHAPTERS }
             MODE_SAVE -> { mode = MODE_CHOICE }
             MODE_LOAD -> { mode = MODE_TITLE }
+            MODE_MORPH -> { morphFrom = null; morphTo = null; playSe("stop"); mode = MODE_TITLE }
             MODE_COLLECTION -> { mode = MODE_TITLE }
             MODE_ENDING -> { mode = MODE_COLLECTION }
             else -> { playSe("stop"); mode = MODE_TITLE }
@@ -643,6 +672,13 @@ class NovelView(ctx: Context) : View(ctx) {
                 }
             }
             MODE_END -> { playSe("stop"); mode = MODE_TITLE }
+            MODE_MORPH -> {
+                if (!morphDone) { morphProgress = 1f; morphDone = true }
+                else {
+                    morphFrom = null; morphTo = null
+                    mode = MODE_GAME; advanceNode()
+                }
+            }
             MODE_ENDING -> { mode = MODE_COLLECTION }
             MODE_COLLECTION -> { if (backToTitleRect.contains(x, y)) mode = MODE_TITLE }
         }
@@ -757,7 +793,52 @@ class NovelView(ctx: Context) : View(ctx) {
             MODE_EPISODES -> drawEpisodes(canvas)
             MODE_SAVE -> drawSlots(canvas, true)
             MODE_LOAD -> drawSlots(canvas, false)
+            MODE_MORPH -> drawMorph(canvas)
         }
+    }
+
+    private fun drawMorph(canvas: Canvas) {
+        canvas.drawColor(Color.BLACK)
+        // 手前の画像を徐々に消し、奥の画像を徐々に出す
+        val t = morphProgress
+        // イーズイン・アウト
+        val e = (t * t * (3 - 2 * t))
+        morphFrom?.let {
+            paintUi.alpha = ((1f - e) * 255).toInt().coerceIn(0, 255)
+            drawFit(canvas, it)
+            paintUi.alpha = 255
+        }
+        morphTo?.let {
+            paintUi.alpha = (e * 255).toInt().coerceIn(0, 255)
+            drawFit(canvas, it)
+            paintUi.alpha = 255
+        }
+        // 光が差し込むような白フラッシュ（中盤で最大）
+        val flash = (1f - Math.abs(e - 0.5f) * 2f).coerceIn(0f, 1f)
+        paintUi.color = Color.argb((flash * 70).toInt(), 255, 250, 235)
+        canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), paintUi)
+
+        paintUi.textAlign = Paint.Align.CENTER
+        if (morphDone) {
+            val alpha = ((Math.sin(blink.toDouble()) * 0.4 + 0.6) * 255).toInt().coerceIn(0, 255)
+            paintUi.color = Color.argb(alpha, 235, 235, 235)
+            paintUi.textSize = width * 0.03f
+            canvas.drawText("タップして続ける", width / 2f, height * 0.93f, paintUi)
+        } else {
+            paintUi.color = Color.argb(110, 220, 220, 220)
+            paintUi.textSize = width * 0.026f
+            canvas.drawText("タップでスキップ", width / 2f, height * 0.95f, paintUi)
+        }
+        paintUi.textAlign = Paint.Align.LEFT
+    }
+
+    // アスペクト比を保って画面内に収める（レターボックス）
+    private fun drawFit(canvas: Canvas, bmp: Bitmap) {
+        val scale = minOf(width.toFloat() / bmp.width, height.toFloat() / bmp.height)
+        val m = Matrix()
+        m.postScale(scale, scale)
+        m.postTranslate((width - bmp.width * scale) / 2f, (height - bmp.height * scale) / 2f)
+        canvas.drawBitmap(bmp, m, paintUi)
     }
 
     private fun drawBg(canvas: Canvas, bmp: Bitmap? = bgBitmap, dim: Int = 130) {
@@ -892,10 +973,14 @@ class NovelView(ctx: Context) : View(ctx) {
         paintUi.typeface = Typeface.create(Typeface.SERIF, Typeface.NORMAL)
 
         chapterRects.clear()
-        val bw = width * 0.78f
-        val bh = height * 0.11f
         val cx = width / 2f
-        var y = height * 0.26f
+        val bw = width * 0.78f
+        // 章数に応じて高さと間隔を詰める（4章以上でも収まるように）
+        val n = chapters.size.coerceAtLeast(1)
+        val avail = height * 0.46f                       // 0.24 〜 0.70 の範囲に収める
+        val gap = if (n >= 4) height * 0.016f else height * 0.03f
+        val bh = ((avail - gap * (n - 1)) / n).coerceAtMost(height * 0.11f)
+        var y = height * 0.24f
         for (i in chapters.indices) {
             val r = RectF(cx - bw / 2, y, cx + bw / 2, y + bh)
             chapterRects.add(r)
@@ -919,8 +1004,8 @@ class NovelView(ctx: Context) : View(ctx) {
                 unlocked -> "タップして開始"
                 else -> "🔒 パスコードが必要です"
             }
-            canvas.drawText(sub, cx, r.bottom - height * 0.02f, paintUi)
-            y += bh + height * 0.03f
+            canvas.drawText(sub, cx, r.bottom - height * 0.018f, paintUi)
+            y += bh + gap
         }
         // 話選択（第三章クリアで解放）
         val unlockedSel = isEpisodeSelectUnlocked()
@@ -963,9 +1048,10 @@ class NovelView(ctx: Context) : View(ctx) {
 
         // 章タブ
         chapterTabRects.clear()
-        val tabW = width * 0.29f
+        val tabGap = width * 0.014f
+        val tabW = (width * 0.90f - tabGap * (chapters.size - 1)) / chapters.size.coerceAtLeast(1)
         val tabH = height * 0.045f
-        val totalW = tabW * chapters.size + width * 0.02f * (chapters.size - 1)
+        val totalW = tabW * chapters.size + tabGap * (chapters.size - 1)
         var tx = cx - totalW / 2
         val tyTab = height * 0.115f
         for (i in chapters.indices) {
@@ -981,9 +1067,9 @@ class NovelView(ctx: Context) : View(ctx) {
             canvas.drawRoundRect(r, 14f, 14f, paintUi)
             paintUi.style = Paint.Style.FILL
             paintUi.color = if (sel) Color.WHITE else Color.argb(170, 220, 220, 220)
-            paintUi.textSize = width * 0.032f
+            paintUi.textSize = width * 0.030f
             canvas.drawText("第${i + 1}章", r.centerX(), r.centerY() + paintUi.textSize / 3f, paintUi)
-            tx += tabW + width * 0.02f
+            tx += tabW + tabGap
         }
 
         val ch = chapters.getOrNull(episodeChapter)
@@ -1306,8 +1392,11 @@ class NovelView(ctx: Context) : View(ctx) {
         canvas.drawText("$got / ${allEndings.size} 種類", cx, height * 0.165f, paintUi)
 
         val bw = width * 0.82f
-        val bh = height * 0.115f
-        var y = height * 0.22f
+        val cnt = allEndings.size.coerceAtLeast(1)
+        val avail = height * 0.63f                      // 0.20 〜 0.83 に収める
+        val gap = if (cnt >= 6) height * 0.012f else height * 0.022f
+        val bh = ((avail - gap * (cnt - 1)) / cnt).coerceAtMost(height * 0.115f)
+        var y = height * 0.20f
         for (e in allEndings) {
             val unlocked = prefs.getBoolean("ending_${e.id}", false)
             val r = RectF(cx - bw / 2, y, cx + bw / 2, y + bh)
@@ -1324,26 +1413,26 @@ class NovelView(ctx: Context) : View(ctx) {
             if (unlocked) {
                 paintUi.color = Color.rgb(215, 180, 110)
                 paintUi.textSize = width * 0.03f
-                canvas.drawText(e.label, lx, r.top + height * 0.032f, paintUi)
+                canvas.drawText(e.label, lx, r.top + bh * 0.28f, paintUi)
                 paintUi.color = Color.WHITE
                 paintUi.textSize = width * 0.046f
-                canvas.drawText(e.name, lx, r.top + height * 0.072f, paintUi)
+                canvas.drawText(e.name, lx, r.top + bh * 0.63f, paintUi)
                 paintUi.color = Color.argb(150, 220, 220, 220)
                 paintUi.textSize = width * 0.026f
                 val d1 = wrap(e.desc, paintUi, bw - width * 0.09f)
-                canvas.drawText(d1.firstOrNull() ?: "", lx, r.top + height * 0.100f, paintUi)
+                canvas.drawText(d1.firstOrNull() ?: "", lx, r.bottom - bh * 0.12f, paintUi)
             } else {
                 paintUi.color = Color.argb(120, 200, 200, 200)
                 paintUi.textSize = width * 0.03f
-                canvas.drawText(e.label, lx, r.top + height * 0.032f, paintUi)
+                canvas.drawText(e.label, lx, r.top + bh * 0.28f, paintUi)
                 paintUi.color = Color.argb(150, 210, 210, 210)
                 paintUi.textSize = width * 0.046f
-                canvas.drawText("？？？？？", lx, r.top + height * 0.072f, paintUi)
+                canvas.drawText("？？？？？", lx, r.top + bh * 0.63f, paintUi)
                 paintUi.color = Color.argb(110, 200, 200, 200)
                 paintUi.textSize = width * 0.026f
-                canvas.drawText("まだ見ていない結末", lx, r.top + height * 0.100f, paintUi)
+                canvas.drawText("まだ見ていない結末", lx, r.bottom - bh * 0.12f, paintUi)
             }
-            y += bh + height * 0.022f
+            y += bh + gap
         }
         paintUi.textAlign = Paint.Align.CENTER
         paintUi.color = Color.argb(130, 230, 230, 230)
