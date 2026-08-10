@@ -655,14 +655,21 @@ __waiting.meta=function(m){
   }catch(e){ showFatal('初期化に失敗しました: '+e.message); }
 };
 
-loadScript('data/meta.js',function(msg){
-  showFatal('データの読み込みに失敗しました');
-});
+// meta は </body> 直前の <script src> で読み込む（動的生成より確実）
 
 // 万一 5 秒経っても初期化されない場合に知らせる
 setTimeout(function(){
   if(!META) showFatal('データを読み込めませんでした');
 },5000);
+</script>
+<script src="data/meta.js"></script>
+<script>
+// meta.js が読めなかった場合の保険
+setTimeout(function(){
+  if(typeof META==='undefined'||!META){
+    if(typeof showFatal==='function')showFatal('データを読み込めませんでした');
+  }
+},4000);
 </script>
 </body>
 </html>
