@@ -51,7 +51,14 @@ html,body{height:100%;background:#07070a;overflow:hidden;touch-action:manipulati
 #vig{background:radial-gradient(ellipse at center,transparent 40%,rgba(0,0,0,.66) 100%);
   pointer-events:none}
 #fx{pointer-events:none;background-size:cover;opacity:0;transition:opacity .8s ease}
-#chars{pointer-events:none}
+#chars{pointer-events:none;transition:opacity .4s ease}
+#chars.hidden{opacity:0}
+/* 長押し中はUIを退けて絵だけ見せる */
+#app.peek #win,#app.peek #hud{opacity:0;pointer-events:none}
+#win,#hud{transition:opacity .3s ease}
+/* 立ち絵なしのときは本文を読みやすく */
+#win.wide{height:calc(46vh + env(safe-area-inset-bottom))}
+#win.wide #text{font-size:clamp(15px,4.4vw,27px);line-height:2.1}
 #chars.recall .ch img{filter:sepia(.45) contrast(.94) brightness(.86)
   drop-shadow(0 8px 20px rgba(0,0,0,.5))}
 .ch{position:absolute;bottom:-14vh;transition:opacity .45s ease;opacity:0}
@@ -200,10 +207,11 @@ html,body{height:100%;background:#07070a;overflow:hidden;touch-action:manipulati
     <span id="hPl"></span>
     <span id="hCl">手掛かり 0</span>
     <span class="sp">
-      <button data-p="clue">手掛かり</button>
-      <button data-p="stat">状態</button>
-      <button id="bSound">音 ON</button>
-      <button id="bAuto">自動</button>
+      <button id="bClue" data-p="clue">手掛かり</button>
+      <button id="bStat" data-p="stat">状態</button>
+      <button id="bChar" data-c="人物">人物</button>
+      <button id="bSound" data-s="音">音 ON</button>
+      <button id="bAuto" data-a="自動">自動</button>
     </span>
   </div>
 
@@ -367,10 +375,41 @@ function se(name,vol){
   }catch(e){}
 }
 
+/* 立ち絵の表示切替。背景と文章だけで読みたいときに使う */
+var SHOW_CHARS=true;
+function charToggle(){
+  SHOW_CHARS=!SHOW_CHARS;
+  applyCharMode();
+  try{localStorage.setItem('toaru_chars',SHOW_CHARS?'1':'0');}catch(e){}
+}
+/* 画面が狭いときはボタンの文字を短くする */
+function fitLabels(){
+  var narrow=window.innerWidth<=640;
+  function set(id,long,short){
+    var b=document.getElementById(id);
+    if(b)b.textContent=narrow?short:long;
+  }
+  set('bClue','手掛かり','手掛');
+  set('bStat','状態','状態');
+  set('bChar',SHOW_CHARS?'人物':'背景',SHOW_CHARS?'人物':'背景');
+  set('bSound',AUDIO.on?'音 ON':'音 OFF',AUDIO.on?'音':'消');
+  set('bAuto',auto?'停止':'自動',auto?'停止':'自動');
+}
+window.addEventListener('resize',fitLabels);
+
+function applyCharMode(){
+  var c=document.getElementById('chars');
+  var w=document.getElementById('win');
+  var b=document.getElementById('bChar');
+  if(c)c.classList.toggle('hidden',!SHOW_CHARS);
+  if(w)w.classList.toggle('wide',!SHOW_CHARS);
+  fitLabels();
+}
+
 function audioToggle(){
   AUDIO.on=!AUDIO.on;
   var b=document.getElementById('bSound');
-  if(b)b.textContent=AUDIO.on?'音 ON':'音 OFF';
+  fitLabels();
   if(!AUDIO.on){
     if(AUDIO.bgm)fadeTo(AUDIO.bgm,0,300,function(){try{AUDIO.bgm.pause();}catch(e){}});
     if(AUDIO.amb)fadeTo(AUDIO.amb,0,300,function(){try{AUDIO.amb.pause();}catch(e){}});
@@ -737,6 +776,32 @@ function startChapter(n,scene,line){
 
 document.addEventListener('touchstart',audioUnlock,{once:true});
 document.addEventListener('click',audioUnlock,{once:true});
+/* テキスト窓を長押しすると、その間だけUIを隠して絵を見られる */
+(function(){
+  var timer=null,peeking=false;
+  var app=document.getElementById('app');
+  function start(){
+    timer=setTimeout(function(){
+      peeking=true; app.classList.add('peek');
+    },420);
+  }
+  function end(e){
+    clearTimeout(timer);
+    if(peeking){
+      peeking=false; app.classList.remove('peek');
+      if(e&&e.preventDefault)e.preventDefault();
+      if(e&&e.stopPropagation)e.stopPropagation();
+    }
+  }
+  var t=document.getElementById('win');
+  t.addEventListener('touchstart',start,{passive:true});
+  t.addEventListener('touchend',end);
+  t.addEventListener('touchcancel',end);
+  t.addEventListener('mousedown',start);
+  t.addEventListener('mouseup',end);
+  t.addEventListener('mouseleave',end);
+})();
+
 $('#win').addEventListener('click',advance);
 document.addEventListener('keydown',function(e){
   if(e.code==='Space'||e.code==='Enter'){e.preventDefault();advance();}
@@ -749,10 +814,11 @@ $$('#hud button').forEach(function(b){
     if(p==='stat')openStat();
   });
 });
+$('#bChar').onclick=function(e){e.stopPropagation();charToggle();};
 $('#bSound').onclick=function(e){e.stopPropagation();audioToggle();};
 $('#bAuto').onclick=function(e){
   e.stopPropagation();auto=!auto;
-  $('#bAuto').textContent=auto?'停止':'自動';
+  fitLabels();
   if(auto&&!typing)nextLine();else clearTimeout(atm);
 };
 $$('[data-close]').forEach(function(b){
@@ -777,8 +843,11 @@ __waiting.meta=function(m){
     (m.choices||[]).forEach(function(c){CH[c.after]=c;});
     GS=newState();
     try{ if(localStorage.getItem('toaru_sound')==='0'){
-      AUDIO.on=false; var sb=$('#bSound'); if(sb)sb.textContent='音 OFF';
+      AUDIO.on=false; AUDIO.on=false;
     } }catch(e){}
+    try{ if(localStorage.getItem('toaru_chars')==='0'){SHOW_CHARS=false;} }catch(e){}
+    applyCharMode();
+    fitLabels();
     var tb=$('#title');
     if(tb)tb.style.backgroundImage='url('+bgPath('BG104_cottage_aerial')+')';
     if(!load()){var mc=$('#mCont');if(mc)mc.style.opacity=.45;}
