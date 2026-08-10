@@ -1,4 +1,5 @@
 name: Build APK
+
 on:
   push:
     branches: [ main ]
@@ -16,9 +17,17 @@ jobs:
       - uses: gradle/actions/setup-gradle@v3
         with:
           gradle-version: '8.9'
-      - name: Build debug APK
-        run: gradle assembleDebug
+
+      - name: Build 1巻 (SoundNovelApp)
+        run: gradle :app:assembleDebug --no-daemon
       - uses: actions/upload-artifact@v4
         with:
-          name: SoundNovelApp-debug
+          name: novel1-soundnovel-apk
           path: app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Build 2巻 (とあるところに)
+        run: gradle :app2:assembleDebug --no-daemon
+      - uses: actions/upload-artifact@v4
+        with:
+          name: novel2-toaru-apk
+          path: app2/build/outputs/apk/debug/app2-debug.apk

@@ -13,3 +13,4 @@ dependencyResolutionManagement {
 }
 rootProject.name = "SoundNovelApp"
 include(":app")
+include(":app2")
