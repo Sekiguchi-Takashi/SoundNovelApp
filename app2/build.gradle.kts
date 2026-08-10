@@ -11,8 +11,8 @@ android {
         applicationId = "com.sekiguchi.toaru"   // 1巻(com.sekiguchi.soundnovel)と別IDなので共存できる
         minSdk = 24
         targetSdk = 34
-        versionCode = 7
-        versionName = "1.7"
+        versionCode = 8
+        versionName = "1.8"
     }
 
     signingConfigs {

@@ -58,7 +58,14 @@ html,body{height:100%;background:#07070a;overflow:hidden;touch-action:manipulati
 #win,#hud{transition:opacity .3s ease}
 /* 立ち絵なしのときは本文を読みやすく */
 #win.wide{height:calc(46vh + env(safe-area-inset-bottom))}
-#win.wide #text{font-size:clamp(15px,4.4vw,27px);line-height:2.1}
+#win.wide #text{line-height:2.1}
+/* 文字サイズ 3段階 */
+#win.ts-s #text{font-size:clamp(14px,3.8vw,23px)}
+#win.ts-m #text{font-size:clamp(16px,4.6vw,27px)}
+#win.ts-l #text{font-size:clamp(18px,5.4vw,32px);line-height:1.85}
+#win.wide.ts-s #text{font-size:clamp(15px,4.1vw,25px)}
+#win.wide.ts-m #text{font-size:clamp(17px,4.9vw,29px)}
+#win.wide.ts-l #text{font-size:clamp(19px,5.8vw,34px);line-height:1.95}
 #chars.recall .ch img{filter:sepia(.45) contrast(.94) brightness(.86)
   drop-shadow(0 8px 20px rgba(0,0,0,.5))}
 .ch{position:absolute;bottom:-14vh;transition:opacity .45s ease;opacity:0}
@@ -148,6 +155,18 @@ html,body{height:100%;background:#07070a;overflow:hidden;touch-action:manipulati
 .card .no{margin-top:10px;font-size:11px;color:#6b5c48;letter-spacing:.1em}
 .card.lock{background:#191720;color:#6f6a62;border-color:#3a3630}
 .card.lock .hd{background:#241f28;color:#6f6a62}
+/* 設定 */
+.cfg{max-width:640px;margin:0 auto}
+.cfg-row{margin-bottom:26px}
+.cfg-label{color:#cfc6b4;font-size:clamp(13px,3.4vw,17px);letter-spacing:.14em;
+  margin-bottom:10px}
+.seg{display:flex;gap:8px}
+.seg button{flex:1;padding:14px 6px;background:rgba(24,21,26,.9);
+  color:#bdb4a4;border:2px solid #6b6053;border-radius:10px;cursor:pointer;
+  font-family:inherit;font-size:clamp(13px,3.4vw,17px);letter-spacing:.06em}
+.seg button.on{background:rgba(58,38,32,.96);border-color:var(--gold);color:#f4ecdc}
+.cfg-note{margin-top:34px;color:#8b8479;font-size:clamp(11px,2.9vw,14px);
+  line-height:1.9;text-align:center;letter-spacing:.06em}
 .badge{padding:1px 9px;border-radius:4px;background:#963226;color:#f4e6da;
   font-size:11px;white-space:nowrap}
 
@@ -209,9 +228,8 @@ html,body{height:100%;background:#07070a;overflow:hidden;touch-action:manipulati
     <span class="sp">
       <button id="bClue" data-p="clue">手掛かり</button>
       <button id="bStat" data-p="stat">状態</button>
-      <button id="bChar" data-c="人物">人物</button>
-      <button id="bSound" data-s="音">音 ON</button>
       <button id="bAuto" data-a="自動">自動</button>
+      <button id="bCfg">設定</button>
     </span>
   </div>
 
@@ -231,6 +249,52 @@ html,body{height:100%;background:#07070a;overflow:hidden;touch-action:manipulati
     <h2>手掛かり</h2>
     <div class="sub" id="clueCount"></div>
     <div class="grid" id="clueGrid"></div>
+  </div>
+
+  <div class="panel" id="pCfg">
+    <div class="close" data-close>閉じる</div>
+    <h2>設定</h2>
+    <div class="sub">読みやすさを調整できます</div>
+    <div class="cfg">
+
+      <div class="cfg-row">
+        <div class="cfg-label">文字の大きさ</div>
+        <div class="seg" id="segText">
+          <button data-v="s">小</button>
+          <button data-v="m">中</button>
+          <button data-v="l">大</button>
+        </div>
+      </div>
+
+      <div class="cfg-row">
+        <div class="cfg-label">自動再生の速さ</div>
+        <div class="seg" id="segSpeed">
+          <button data-v="slow">ゆっくり</button>
+          <button data-v="normal">ふつう</button>
+          <button data-v="fast">速い</button>
+        </div>
+      </div>
+
+      <div class="cfg-row">
+        <div class="cfg-label">立ち絵</div>
+        <div class="seg" id="segChar">
+          <button data-v="on">表示</button>
+          <button data-v="off">背景のみ</button>
+        </div>
+      </div>
+
+      <div class="cfg-row">
+        <div class="cfg-label">音</div>
+        <div class="seg" id="segSound">
+          <button data-v="on">鳴らす</button>
+          <button data-v="off">消す</button>
+        </div>
+      </div>
+
+      <div class="cfg-note">
+        テキスト部分を長押しすると、その間だけ文字と<br>ボタンが消えて絵だけになります。
+      </div>
+    </div>
   </div>
 
   <div class="panel" id="pChap">
@@ -378,9 +442,8 @@ function se(name,vol){
 /* 立ち絵の表示切替。背景と文章だけで読みたいときに使う */
 var SHOW_CHARS=true;
 function charToggle(){
-  SHOW_CHARS=!SHOW_CHARS;
-  applyCharMode();
-  try{localStorage.setItem('toaru_chars',SHOW_CHARS?'1':'0');}catch(e){}
+  PREF.chars=!PREF.chars;
+  savePref(); applyPref();
 }
 /* 画面が狭いときはボタンの文字を短くする */
 function fitLabels(){
@@ -391,11 +454,92 @@ function fitLabels(){
   }
   set('bClue','手掛かり','手掛');
   set('bStat','状態','状態');
-  set('bChar',SHOW_CHARS?'人物':'背景',SHOW_CHARS?'人物':'背景');
-  set('bSound',AUDIO.on?'音 ON':'音 OFF',AUDIO.on?'音':'消');
   set('bAuto',auto?'停止':'自動',auto?'停止':'自動');
+  set('bCfg','設定','設定');
 }
 window.addEventListener('resize',fitLabels);
+
+/* ============ 設定 ============ */
+var PREF={text:'m',speed:'normal',chars:true,sound:true};
+
+var SPEED={
+  slow:   {type:38, wait:1100},
+  normal: {type:26, wait:700},
+  fast:   {type:12, wait:320}
+};
+
+function loadPref(){
+  try{
+    var r=localStorage.getItem('toaru_pref');
+    if(r){var o=JSON.parse(r);for(var k in o)PREF[k]=o[k];}
+    // 旧バージョンの設定を引き継ぐ
+    if(localStorage.getItem('toaru_sound')==='0')PREF.sound=false;
+    if(localStorage.getItem('toaru_chars')==='0')PREF.chars=false;
+  }catch(e){}
+}
+function savePref(){
+  try{localStorage.setItem('toaru_pref',JSON.stringify(PREF));}catch(e){}
+}
+
+function applyPref(){
+  // 文字サイズ
+  var w=document.getElementById('win');
+  if(w){
+    w.classList.remove('ts-s','ts-m','ts-l');
+    w.classList.add('ts-'+PREF.text);
+  }
+  // 再生速度
+  var sp=SPEED[PREF.speed]||SPEED.normal;
+  CFG.typeSpeed=sp.type; CFG.autoWait=sp.wait;
+  // 立ち絵
+  SHOW_CHARS=PREF.chars;
+  applyCharMode();
+  // 音
+  if(AUDIO.on!==PREF.sound){
+    AUDIO.on=PREF.sound;
+    if(!AUDIO.on){
+      if(AUDIO.bgm)fadeTo(AUDIO.bgm,0,300,function(){try{AUDIO.bgm.pause();}catch(e){}});
+      if(AUDIO.amb)fadeTo(AUDIO.amb,0,300,function(){try{AUDIO.amb.pause();}catch(e){}});
+    }else{
+      var b1=AUDIO.curBgm,a1=AUDIO.curAmb;
+      AUDIO.curBgm='';AUDIO.curAmb='';
+      playBgm(b1);playAmb(a1);
+    }
+  }
+  markSegments();
+  fitLabels();
+}
+
+function markSegments(){
+  var map=[['segText',PREF.text],['segSpeed',PREF.speed],
+           ['segChar',PREF.chars?'on':'off'],['segSound',PREF.sound?'on':'off']];
+  map.forEach(function(pair){
+    var box=document.getElementById(pair[0]);
+    if(!box)return;
+    [].forEach.call(box.querySelectorAll('button'),function(b){
+      b.classList.toggle('on', b.getAttribute('data-v')===pair[1]);
+    });
+  });
+}
+
+function bindSegments(){
+  function bind(id,key,conv){
+    var box=document.getElementById(id);
+    if(!box)return;
+    [].forEach.call(box.querySelectorAll('button'),function(b){
+      b.onclick=function(e){
+        e.stopPropagation();
+        var v=b.getAttribute('data-v');
+        PREF[key]=conv?conv(v):v;
+        savePref(); applyPref();
+      };
+    });
+  }
+  bind('segText','text');
+  bind('segSpeed','speed');
+  bind('segChar','chars',function(v){return v==='on';});
+  bind('segSound','sound',function(v){return v==='on';});
+}
 
 function applyCharMode(){
   var c=document.getElementById('chars');
@@ -814,8 +958,11 @@ $$('#hud button').forEach(function(b){
     if(p==='stat')openStat();
   });
 });
-$('#bChar').onclick=function(e){e.stopPropagation();charToggle();};
-$('#bSound').onclick=function(e){e.stopPropagation();audioToggle();};
+$('#bCfg').onclick=function(e){
+  e.stopPropagation();
+  markSegments();
+  $('#pCfg').classList.add('on');
+};
 $('#bAuto').onclick=function(e){
   e.stopPropagation();auto=!auto;
   fitLabels();
@@ -842,12 +989,9 @@ __waiting.meta=function(m){
     META=m;ED=m.endings;CHAPS=m.chapters;
     (m.choices||[]).forEach(function(c){CH[c.after]=c;});
     GS=newState();
-    try{ if(localStorage.getItem('toaru_sound')==='0'){
-      AUDIO.on=false; AUDIO.on=false;
-    } }catch(e){}
-    try{ if(localStorage.getItem('toaru_chars')==='0'){SHOW_CHARS=false;} }catch(e){}
-    applyCharMode();
-    fitLabels();
+    loadPref();
+    bindSegments();
+    applyPref();
     var tb=$('#title');
     if(tb)tb.style.backgroundImage='url('+bgPath('BG104_cottage_aerial')+')';
     if(!load()){var mc=$('#mCont');if(mc)mc.style.opacity=.45;}
