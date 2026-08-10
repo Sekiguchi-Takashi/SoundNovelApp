@@ -34,6 +34,10 @@ class MainActivity : Activity() {
                 domStorageEnabled = true
                 allowFileAccess = true
                 allowContentAccess = true
+                @Suppress("DEPRECATION")
+                allowFileAccessFromFileURLs = true      // data/*.json の読み込みに必要
+                @Suppress("DEPRECATION")
+                allowUniversalAccessFromFileURLs = true
                 cacheMode = WebSettings.LOAD_DEFAULT
                 textZoom = 100
                 useWideViewPort = true
@@ -44,8 +48,20 @@ class MainActivity : Activity() {
             isHorizontalScrollBarEnabled = false
             overScrollMode = View.OVER_SCROLL_NEVER
             setBackgroundColor(0xFF07070A.toInt())
+            // 端末によっては大きな画像でGPU描画が不安定になるため保険
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+                setLayerType(View.LAYER_TYPE_SOFTWARE, null)
+            }
             webViewClient = WebViewClient()
-            webChromeClient = WebChromeClient()
+            webChromeClient = object : WebChromeClient() {
+                override fun onConsoleMessage(
+                    msg: android.webkit.ConsoleMessage
+                ): Boolean {
+                    android.util.Log.d("Toaru",
+                        "${msg.message()} @${msg.lineNumber()}")
+                    return true
+                }
+            }
         }
 
         setContentView(web)

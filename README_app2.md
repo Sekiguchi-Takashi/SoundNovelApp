@@ -5,15 +5,36 @@
 
 ---
 
+## 起動直後に落ちる問題への対応（重要）
+
+初版は 4.4MB の JavaScript を一括で読み込む作りだったため、
+WebView がメモリ不足で落ちていました。次のように作り直しています。
+
+| 対策 | 内容 |
+|---|---|
+| 画像を実ファイル化 | base64 埋め込みをやめ、`bg/` `ch/` `fx/` に WebP を配置 |
+| データを章分割 | `data/ch1.js`〜`ch4.js`。開いた章だけを読み込む |
+| 読み込み方式 | `file://` では XHR が CORS で塞がれるため、script タグ方式へ変更 |
+| 起動時の負荷 | 初回は meta（6KB）＋第一章（86KB）のみ |
+
+これにより起動時のメモリ消費が大幅に下がりました。
+
+---
+
 ## 構成
 
 ```
 SoundNovelApp/
   app/          1巻 サウンドノベル（ネイティブKotlin版）── 変更なし
   app2/         2巻 とあるところに（WebView版）── 今回追加
+    src/main/assets/
+      index.html        ゲームエンジン（28KB）
+      data/meta.js      章・分岐・エンド定義（6KB）
+      data/ch1〜4.js    各章のシーン（86/51/44/30KB）
+      bg/               背景 20点（956KB）
+      ch/               立ち絵 36点（1.8MB）
+      fx/               演出 2点（260KB）
   debug.keystore
-  settings.gradle.kts     :app2 を追記
-  .github/workflows/      両方をビルドするよう更新
 ```
 
 パッケージ名が違うため（`com.sekiguchi.soundnovel` と `com.sekiguchi.toaru`）、
@@ -29,23 +50,15 @@ unzip -o /sdcard/Download/novel2_pack.zip -d SoundNovelApp
 cd ~/SoundNovelApp
 bash setup_app2.sh
 git add -A
-git commit -m "add novel2 (toaru) as app2"
+git commit -m "fix novel2: split assets to avoid webview crash"
 git push
 ```
 
-`setup_app2.sh` がやること:
-
-1. `settings.gradle.kts` に `include(":app2")` を追記
-2. Actions のワークフローを、1巻と2巻の両方をビルドする形へ更新
-3. `gradle.properties` に必要な設定がなければ追記
-
-何度実行しても壊れません（追記済みなら skip します）。
+`setup_app2.sh` は何度実行しても壊れません。
 
 ---
 
 ## ビルド結果
-
-Actions の成果物が2つ出ます。
 
 | 成果物 | 内容 |
 |---|---|
@@ -62,20 +75,21 @@ Actions の成果物が2つ出ます。
 | 分岐 | 20箇所 |
 | 手掛かり | 20件 |
 | エンディング | 7種 |
-| 画像 | 立ち絵36点 / 背景20点 / 演出2点（WebP埋め込み） |
-| 容量 | game_data.js が 4.2MB |
-
-`app2/src/main/assets/` の2ファイルがゲーム本体です。
-
-- `index.html` … ゲームエンジン（分岐・UI・セーブ）
-- `game_data.js` … 全シーンと画像
-
-物語やアセットを更新するときは `game_data.js` を差し替えるだけで済みます。
+| 総容量 | assets 3.5MB |
 
 ---
 
-## 将来の統合について
+## 検証済み
 
-1巻もWebView版エンジンへ移植すれば、一本のアプリにまとめられます。
-分岐・手掛かり・エンドコレクションはすでに2巻側の方が高機能なので、
-統合するなら2巻のエンジンに1巻のシナリオを載せる形が自然です。
+- 起動 → タイトル → 本編再生（JSエラーなし）
+- 全4章の遅延読み込み（193/107/90/69シーン）
+- 分岐の選択と状態変化
+- 参照アセットの欠損なし（背景20・立ち絵36を全数突合）
+
+---
+
+## 更新のしかた
+
+物語を変えたときは `data/ch*.js` を、
+画像を足したときは `bg/` `ch/` にファイルを置くだけです。
+エンジン（`index.html`）を触るのは、分岐やUIを変えるときだけです。
