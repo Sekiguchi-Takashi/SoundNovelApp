@@ -182,6 +182,7 @@ html,body{height:100%;background:#07070a;overflow:hidden;touch-action:manipulati
     <span class="sp">
       <button data-p="clue">手掛かり</button>
       <button data-p="stat">状態</button>
+      <button id="bSound">音 ON</button>
       <button id="bAuto">自動</button>
     </span>
   </div>
@@ -274,6 +275,84 @@ var CLUE_TEXT={
  CL019:['失われた記憶','梨花は、山道を歩いた記憶を持っていなかった。','C'],
  CL020:['残された物語','「私の物語が、まだ残っています」——主催者はそう言った。','B']
 };
+
+/* ============ 音声 ============ */
+var AUDIO={bgm:null,amb:null,curBgm:'',curAmb:'',on:true,ready:false};
+
+function sePath(n){return 'se/'+n+'.ogg';}
+
+function fadeTo(el,target,ms,done){
+  if(!el)return;
+  var from=el.volume,steps=Math.max(1,Math.round(ms/40)),i=0;
+  clearInterval(el._f);
+  el._f=setInterval(function(){
+    i++;
+    var v=from+(target-from)*(i/steps);
+    try{el.volume=Math.max(0,Math.min(1,v));}catch(e){}
+    if(i>=steps){clearInterval(el._f);done&&done();}
+  },40);
+}
+
+function makeLoop(name){
+  var a=new Audio(sePath(name));
+  a.loop=true;a.volume=0;a.preload='auto';
+  return a;
+}
+
+function playBgm(name){
+  if(!AUDIO.on||!name||AUDIO.curBgm===name)return;
+  var old=AUDIO.bgm;
+  if(old)fadeTo(old,0,700,function(){try{old.pause();}catch(e){}});
+  AUDIO.curBgm=name;
+  var a=makeLoop(name);AUDIO.bgm=a;
+  var pr=a.play();
+  if(pr&&pr.then)pr.then(function(){fadeTo(a,0.30,900);}).catch(function(){});
+}
+
+function playAmb(name){
+  if(!AUDIO.on||!name||AUDIO.curAmb===name)return;
+  var old=AUDIO.amb;
+  if(old)fadeTo(old,0,500,function(){try{old.pause();}catch(e){}});
+  AUDIO.curAmb=name;
+  var a=makeLoop(name);AUDIO.amb=a;
+  var pr=a.play();
+  if(pr&&pr.then)pr.then(function(){fadeTo(a,0.40,700);}).catch(function(){});
+}
+
+function se(name,vol){
+  if(!AUDIO.on)return;
+  try{
+    var a=new Audio(sePath(name));
+    a.volume=(vol===undefined)?0.5:vol;
+    var pr=a.play();
+    if(pr&&pr.catch)pr.catch(function(){});
+  }catch(e){}
+}
+
+function audioToggle(){
+  AUDIO.on=!AUDIO.on;
+  var b=document.getElementById('bSound');
+  if(b)b.textContent=AUDIO.on?'音 ON':'音 OFF';
+  if(!AUDIO.on){
+    if(AUDIO.bgm)fadeTo(AUDIO.bgm,0,300,function(){try{AUDIO.bgm.pause();}catch(e){}});
+    if(AUDIO.amb)fadeTo(AUDIO.amb,0,300,function(){try{AUDIO.amb.pause();}catch(e){}});
+  }else{
+    var b1=AUDIO.curBgm,a1=AUDIO.curAmb;
+    AUDIO.curBgm='';AUDIO.curAmb='';
+    playBgm(b1);playAmb(a1);
+  }
+  try{localStorage.setItem('toaru_sound',AUDIO.on?'1':'0');}catch(e){}
+}
+
+/* 端末は最初のタップまで音を鳴らせない */
+function audioUnlock(){
+  if(AUDIO.ready)return;
+  AUDIO.ready=true;
+  var b=AUDIO.curBgm,a=AUDIO.curAmb;
+  AUDIO.curBgm='';AUDIO.curAmb='';
+  if(b)playBgm(b);
+  if(a)playAmb(a);
+}
 
 function save(){
   try{localStorage.setItem(CFG.saveKey,
@@ -400,6 +479,8 @@ function playScene(i){
   $('#recallTag').classList.toggle('on',rc);
   setBG(s.background);setFX(fxFor(s));
   setChars(s.characters,guessExpr(s));
+  if(s.amb)playAmb(s.amb);
+  if(s.bgm)playBgm(s.bgm);
   $('#hSc').textContent=s.id;
   $('#hPl').textContent=s.placeName;
   (s.clues||[]).forEach(addClue);
@@ -485,6 +566,7 @@ function showChoice(c){
 }
 function clamp(v){return Math.max(0,Math.min(100,v));}
 function pick(o){
+  se('se_select',0.5);
   $('#choice').classList.remove('on');pendingChoice=null;
   var e=o.effects||{};
   (e.clues||[]).forEach(addClue);
@@ -604,6 +686,8 @@ function startChapter(n,scene,line){
   },420);
 }
 
+document.addEventListener('touchstart',audioUnlock,{once:true});
+document.addEventListener('click',audioUnlock,{once:true});
 $('#win').addEventListener('click',advance);
 document.addEventListener('keydown',function(e){
   if(e.code==='Space'||e.code==='Enter'){e.preventDefault();advance();}
@@ -616,6 +700,7 @@ $$('#hud button').forEach(function(b){
     if(p==='stat')openStat();
   });
 });
+$('#bSound').onclick=function(e){e.stopPropagation();audioToggle();};
 $('#bAuto').onclick=function(e){
   e.stopPropagation();auto=!auto;
   $('#bAuto').textContent=auto?'停止':'自動';
@@ -642,6 +727,9 @@ __waiting.meta=function(m){
     META=m;ED=m.endings;CHAPS=m.chapters;
     (m.choices||[]).forEach(function(c){CH[c.after]=c;});
     GS=newState();
+    try{ if(localStorage.getItem('toaru_sound')==='0'){
+      AUDIO.on=false; var sb=$('#bSound'); if(sb)sb.textContent='音 OFF';
+    } }catch(e){}
     var tb=$('#title');
     if(tb)tb.style.backgroundImage='url('+bgPath('BG104_cottage_aerial')+')';
     if(!load()){var mc=$('#mCont');if(mc)mc.style.opacity=.45;}
