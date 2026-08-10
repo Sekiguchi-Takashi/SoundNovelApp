@@ -29,6 +29,25 @@ html,body{height:100%;background:#07070a;overflow:hidden;touch-action:manipulati
 #bg{background-size:cover;background-position:center;transition:opacity .5s ease}
 #bg.fade{opacity:0}
 #bg.recall{filter:sepia(.55) contrast(.92) brightness(.82)}
+/* 揺れ */
+@keyframes shakeA{
+  0%,100%{transform:translate(0,0)}
+  20%{transform:translate(-6px,3px)}
+  40%{transform:translate(5px,-4px)}
+  60%{transform:translate(-4px,-2px)}
+  80%{transform:translate(3px,4px)}
+}
+#app.shake{animation:shakeA .45s ease-in-out}
+/* 稲光 */
+#flash{position:absolute;inset:0;background:#e8f0ff;opacity:0;pointer-events:none;z-index:8}
+@keyframes flashA{
+  0%{opacity:0}6%{opacity:.86}12%{opacity:.1}
+  20%{opacity:.62}30%{opacity:0}100%{opacity:0}
+}
+#flash.on{animation:flashA 1.1s ease-out}
+/* 立ち絵の登場を少し下から */
+.ch{transform:translateX(-50%) translateY(10px)}
+.ch.on{transform:translateX(-50%) translateY(0)}
 #vig{background:radial-gradient(ellipse at center,transparent 40%,rgba(0,0,0,.66) 100%);
   pointer-events:none}
 #fx{pointer-events:none;background-size:cover;opacity:0;transition:opacity .8s ease}
@@ -174,6 +193,7 @@ html,body{height:100%;background:#07070a;overflow:hidden;touch-action:manipulati
   <div class="layer" id="fx"></div>
   <div class="layer" id="vig"></div>
   <div class="layer" id="chars"></div>
+  <div id="flash"></div>
 
   <div id="hud">
     <span id="hSc"></span>
@@ -276,6 +296,24 @@ var CLUE_TEXT={
  CL020:['残された物語','「私の物語が、まだ残っています」——主催者はそう言った。','B']
 };
 
+/* ============ 画面演出 ============ */
+function shake(){
+  var a=document.getElementById('app');
+  if(!a)return;
+  a.classList.remove('shake');
+  void a.offsetWidth;          // アニメを再実行させる
+  a.classList.add('shake');
+  setTimeout(function(){a.classList.remove('shake');},520);
+}
+function flash(){
+  var f=document.getElementById('flash');
+  if(!f)return;
+  f.classList.remove('on');
+  void f.offsetWidth;
+  f.classList.add('on');
+  setTimeout(function(){f.classList.remove('on');},1200);
+}
+
 /* ============ 音声 ============ */
 var AUDIO={bgm:null,amb:null,curBgm:'',curAmb:'',on:true,ready:false};
 
@@ -302,21 +340,21 @@ function makeLoop(name){
 function playBgm(name){
   if(!AUDIO.on||!name||AUDIO.curBgm===name)return;
   var old=AUDIO.bgm;
-  if(old)fadeTo(old,0,700,function(){try{old.pause();}catch(e){}});
+  if(old)fadeTo(old,0,1800,function(){try{old.pause();}catch(e){}});
   AUDIO.curBgm=name;
   var a=makeLoop(name);AUDIO.bgm=a;
   var pr=a.play();
-  if(pr&&pr.then)pr.then(function(){fadeTo(a,0.30,900);}).catch(function(){});
+  if(pr&&pr.then)pr.then(function(){fadeTo(a,0.52,2200);}).catch(function(){});
 }
 
 function playAmb(name){
   if(!AUDIO.on||!name||AUDIO.curAmb===name)return;
   var old=AUDIO.amb;
-  if(old)fadeTo(old,0,500,function(){try{old.pause();}catch(e){}});
+  if(old)fadeTo(old,0,1200,function(){try{old.pause();}catch(e){}});
   AUDIO.curAmb=name;
   var a=makeLoop(name);AUDIO.amb=a;
   var pr=a.play();
-  if(pr&&pr.then)pr.then(function(){fadeTo(a,0.40,700);}).catch(function(){});
+  if(pr&&pr.then)pr.then(function(){fadeTo(a,0.60,1600);}).catch(function(){});
 }
 
 function se(name,vol){
@@ -450,14 +488,16 @@ function fxFor(s){
   return null;
 }
 function guessExpr(s){
+  // データ側で事前計算済みならそれを使う
+  if(s.expr)return s.expr;
   var m={},t=s.lines.join('');
   s.characters.forEach(function(c){
     var e='n';
-    if(/驚|息をのむ|えっ|まさか/.test(t))e='a';
-    else if(/不安|震え|怖|ざわ/.test(t))e='w';
-    else if(/笑|微笑|安心/.test(t))e='s';
-    else if(/考え|思い出|黙/.test(t))e='t';
-    else if(/俯|沈黙|重|失/.test(t))e='d';
+    if(/息をのん|目を見開|絶句/.test(t))e='a';
+    else if(/不安|震え|怖/.test(t))e='w';
+    else if(/微笑|笑顔|嬉し/.test(t))e='s';
+    else if(/考え|思い出|黙って/.test(t))e='t';
+    else if(/俯|沈黙|涙/.test(t))e='d';
     m[c]=e;
   });
   return m;
@@ -491,6 +531,15 @@ function nextLine(){
   var s=SC[si];
   if(!s)return;
   if(li>=s.lines.length){afterScene();return;}
+  // その行に仕込まれた演出を発動する
+  if(s.fx&&s.fx[String(li)]){
+    s.fx[String(li)].forEach(function(k){
+      if(k==='shake')shake();
+      else if(k==='flash')flash();
+      else if(k==='thunder'){flash();se('se_thunder',0.5);}
+      else if(k==='knock')se('se_knock',0.55);
+    });
+  }
   var raw=s.lines[li];
   var c0=raw.charAt(0);
   var isVoice=(c0==='«'||c0==='『');
