@@ -133,7 +133,7 @@ html,body{height:100%;background:#07070a;overflow:hidden;touch-action:manipulati
   transition:.35s;pointer-events:none;max-width:70vw}
 #toast.on{opacity:1;transform:translateY(0)}
 
-.panel{position:absolute;inset:0;z-index:10;display:none;
+.panel{position:absolute;inset:0;z-index:24;display:none;
   background:rgba(8,7,10,.97);overflow-y:auto;
   padding:calc(5vh + env(safe-area-inset-top)) 5vw
           calc(5vh + env(safe-area-inset-bottom))}
@@ -155,6 +155,50 @@ html,body{height:100%;background:#07070a;overflow:hidden;touch-action:manipulati
 .card .no{margin-top:10px;font-size:11px;color:#6b5c48;letter-spacing:.1em}
 .card.lock{background:#191720;color:#6f6a62;border-color:#3a3630}
 .card.lock .hd{background:#241f28;color:#6f6a62}
+.who-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));
+  gap:14px;max-width:900px;margin:0 auto}
+.who{background:rgba(24,20,26,.92);border:2px solid #6b6053;border-radius:14px;
+  padding:14px 12px 16px;text-align:center;cursor:pointer;transition:.2s}
+.who:hover{border-color:var(--gold)}
+.who img{width:100%;max-width:120px;height:auto;display:block;margin:0 auto 8px}
+.who .nm{color:#f0e8d8;font-size:clamp(14px,3.6vw,18px);letter-spacing:.1em}
+.who .ym{color:#8d8578;font-size:11px;letter-spacing:.14em;margin-top:2px}
+.who .tg{margin-top:7px;display:inline-block;padding:2px 10px;border-radius:11px;
+  background:rgba(150,60,44,.34);color:#e0b79c;font-size:11px;letter-spacing:.08em}
+.who.lock{background:rgba(16,15,19,.9);border-color:#3a3630;cursor:default}
+.who.lock .silhouette{filter:brightness(0) opacity(.34)}
+.who.lock .nm{color:#5f5b55}
+/* 詳細 */
+#whoDetail{position:fixed;inset:0;z-index:40;display:none;
+  background:rgba(6,5,8,.97);padding:4vh 6vw 6vh;overflow-y:auto}
+#whoDetail.on{display:block}
+#whoDetail .box{max-width:560px;margin:0 auto;text-align:center}
+#whoDetail img{width:auto;height:min(38vh,300px);margin:0 auto 12px;display:block}
+#whoDetail .nm{font-size:clamp(22px,6vw,36px);letter-spacing:.16em;color:#f2ebdc}
+#whoDetail .ym{color:#9a9184;font-size:12px;letter-spacing:.2em;margin-top:4px}
+#whoDetail .tg{margin:12px 0 20px;display:inline-block;padding:4px 16px;
+  border-radius:14px;background:rgba(150,60,44,.36);color:#e6bda2;
+  font-size:12px;letter-spacing:.1em}
+#whoDetail .txt{color:#ded6c8;font-size:clamp(13px,3.6vw,17px);line-height:2.05;
+  text-align:left;letter-spacing:.04em}
+#whoDetail .more{margin-top:20px;padding-top:18px;border-top:1px solid #4a443c;
+  color:#c8b78f;font-size:clamp(12px,3.3vw,16px);line-height:2;text-align:left}
+#whoDetail .more b{display:block;color:#9a8c68;font-size:11px;
+  letter-spacing:.2em;margin-bottom:8px}
+#whoDetail .forms{display:flex;gap:8px;justify-content:center;
+  margin:4px 0 18px;flex-wrap:wrap}
+#whoDetail .forms button{padding:8px 16px;background:rgba(24,21,26,.9);
+  color:#b9b0a1;border:2px solid #6b6053;border-radius:9px;cursor:pointer;
+  font-family:inherit;font-size:clamp(12px,3.1vw,15px);letter-spacing:.08em}
+#whoDetail .forms button.on{background:rgba(58,38,32,.96);
+  border-color:var(--gold);color:#f4ecdc}
+#whoDetail .forms button.lock{opacity:.38;cursor:default}
+#whoDetail .fnote{color:#a99c85;font-size:clamp(11px,3vw,14px);
+  line-height:1.9;margin:-8px 0 16px;letter-spacing:.04em}
+#whoDetail .back{margin-top:30px;padding:12px 30px;background:rgba(30,25,32,.9);
+  color:#e6ddcc;border:2px solid #7d6d55;border-radius:10px;cursor:pointer;
+  font-family:inherit;font-size:14px;letter-spacing:.14em}
+
 /* 設定 */
 .cfg{max-width:640px;margin:0 auto}
 .cfg-row{margin-bottom:26px}
@@ -227,7 +271,7 @@ html,body{height:100%;background:#07070a;overflow:hidden;touch-action:manipulati
     <span id="hCl">手掛かり 0</span>
     <span class="sp">
       <button id="bClue" data-p="clue">手掛かり</button>
-      <button id="bStat" data-p="stat">状態</button>
+      <button id="bWho">人物</button>
       <button id="bAuto" data-a="自動">自動</button>
       <button id="bCfg">設定</button>
     </span>
@@ -249,6 +293,13 @@ html,body{height:100%;background:#07070a;overflow:hidden;touch-action:manipulati
     <h2>手掛かり</h2>
     <div class="sub" id="clueCount"></div>
     <div class="grid" id="clueGrid"></div>
+  </div>
+
+  <div class="panel" id="pWho">
+    <div class="close" data-close>閉じる</div>
+    <h2>人物</h2>
+    <div class="sub" id="whoCount"></div>
+    <div class="who-grid" id="whoGrid"></div>
   </div>
 
   <div class="panel" id="pCfg">
@@ -284,10 +335,25 @@ html,body{height:100%;background:#07070a;overflow:hidden;touch-action:manipulati
       </div>
 
       <div class="cfg-row">
-        <div class="cfg-label">音</div>
+        <div class="cfg-label">BGM・環境音</div>
         <div class="seg" id="segSound">
           <button data-v="on">鳴らす</button>
           <button data-v="off">消す</button>
+        </div>
+      </div>
+
+      <div class="cfg-row">
+        <div class="cfg-label">効果音</div>
+        <div class="seg" id="segSe">
+          <button data-v="on">鳴らす</button>
+          <button data-v="off">消す</button>
+        </div>
+      </div>
+
+      <div class="cfg-row">
+        <div class="cfg-label">記録</div>
+        <div class="seg">
+          <button id="openStat">いまの状態を見る</button>
         </div>
       </div>
 
@@ -316,6 +382,7 @@ html,body{height:100%;background:#07070a;overflow:hidden;touch-action:manipulati
     <small>画面をタップして始める</small>
   </div>
 
+  <div id="whoDetail"></div>
   <div id="ending" class="hide"></div>
 
   <div id="title">
@@ -326,6 +393,7 @@ html,body{height:100%;background:#07070a;overflow:hidden;touch-action:manipulati
       <button id="mCont">つづきから</button>
       <button id="mChap">章を選ぶ</button>
       <button id="mClue">手掛かり一覧</button>
+      <button id="mWho">人物</button>
     </div>
   </div>
 </div>
@@ -430,7 +498,7 @@ function playAmb(name){
 }
 
 function se(name,vol){
-  if(!AUDIO.on)return;
+  if(!AUDIO.on||!PREF.se)return;
   try{
     var a=new Audio(sePath(name));
     a.volume=(vol===undefined)?0.5:vol;
@@ -453,14 +521,117 @@ function fitLabels(){
     if(b)b.textContent=narrow?short:long;
   }
   set('bClue','手掛かり','手掛');
-  set('bStat','状態','状態');
+  set('bWho','人物','人物');
   set('bAuto',auto?'停止':'自動',auto?'停止':'自動');
   set('bCfg','設定','設定');
 }
 window.addEventListener('resize',fitLabels);
 
+/* ============ 人物図鑑 ============ */
+function facePath(cid){return 'face/'+cid+'.webp';}
+
+/* 出会った人物を記録する */
+function meetPeople(sc){
+  if(!GS.met)GS.met=[];
+  var added=false;
+  var list=(sc.characters||[]).concat(sc.meet||[]);
+  list.forEach(function(c){
+    if(GS.met.indexOf(c)<0){GS.met.push(c);added=true;}
+  });
+  if(added)save();
+}
+
+/* 追加情報が解禁されているか（そのSceneまで読んだか） */
+function unlocked(person){
+  if(!GS.seen)return false;
+  return GS.seen.indexOf(person.unlock)>=0;
+}
+
+function openWho(){
+  var list=(META&&META.people)||[];
+  var met=GS&&GS.met?GS.met:[];
+  var g=$('#whoGrid');g.innerHTML='';
+  $('#whoCount').textContent=met.length+' / '+list.length+' 人';
+  list.forEach(function(p){
+    var known=met.indexOf(p.id)>=0;
+    // 解禁されている中で最も新しい姿を一覧に出す
+    var key='';
+    if(known&&p.forms){
+      for(var fi=p.forms.length-1;fi>=0;fi--){
+        if(formUnlocked(p.forms[fi])){key=p.forms[fi].key;break;}
+      }
+    }
+    var d=document.createElement('div');
+    d.className='who'+(known?'':' lock');
+    d.innerHTML=
+      '<img class="'+(known?'':'silhouette')+'" src="'+facePath(p.id+key)+'" alt="">'+
+      '<div class="nm">'+(known?p.name:'？？？')+'</div>'+
+      (known?'<div class="ym">'+p.yomi+'</div>':'')+
+      (known?'<div class="tg">'+p.tag+'</div>':'');
+    if(known)d.onclick=function(){showWho(p);};
+    g.appendChild(d);
+  });
+  $('#pWho').classList.add('on');
+}
+
+function formUnlocked(f){
+  if(!f.unlock)return true;
+  return GS.seen && GS.seen.indexOf(f.unlock)>=0;
+}
+
+function showWho(p,formIdx){
+  var box=$('#whoDetail');
+  var forms=p.forms||null;
+  var idx=formIdx||0;
+  var cur=forms?forms[idx]:null;
+
+  var img=facePath(p.id+(cur?cur.key:''));
+  var more='';
+  if(unlocked(p)){
+    more='<div class="more"><b>読み進めて分かったこと</b>'+p.detail+'</div>';
+  }
+
+  // 姿の切り替えボタン
+  var tabs='';
+  if(forms&&forms.length>1){
+    tabs='<div class="forms">';
+    forms.forEach(function(f,i){
+      var ok=formUnlocked(f);
+      tabs+='<button data-i="'+i+'"'+
+            (i===idx?' class="on"':(ok?'':' class="lock"'))+'>'+
+            (ok?f.label:'？')+'</button>';
+    });
+    tabs+='</div>';
+  }
+  var fnote=(cur&&cur.note&&formUnlocked(cur))
+    ?'<div class="fnote">'+cur.note+'</div>':'';
+
+  box.innerHTML=
+    '<div class="box">'+
+      '<img src="'+img+'" alt="">'+
+      '<div class="nm">'+p.name+'</div>'+
+      '<div class="ym">'+p.yomi+'</div>'+
+      '<div class="tg">'+p.tag+'</div>'+
+      tabs+fnote+
+      '<div class="txt">'+p.intro+'</div>'+
+      more+
+      '<button class="back">戻る</button>'+
+    '</div>';
+
+  if(forms){
+    [].forEach.call(box.querySelectorAll('.forms button'),function(b){
+      var i=parseInt(b.getAttribute('data-i'),10);
+      if(formUnlocked(forms[i])){
+        b.onclick=function(e){e.stopPropagation();showWho(p,i);};
+      }
+    });
+  }
+  box.querySelector('.back').onclick=function(){box.classList.remove('on');};
+  box.classList.add('on');
+}
+
 /* ============ 設定 ============ */
-var PREF={text:'m',speed:'normal',chars:true,sound:true};
+var PREF={text:'m',speed:'normal',chars:true,sound:true,se:true};
 
 var SPEED={
   slow:   {type:38, wait:1100},
@@ -512,7 +683,8 @@ function applyPref(){
 
 function markSegments(){
   var map=[['segText',PREF.text],['segSpeed',PREF.speed],
-           ['segChar',PREF.chars?'on':'off'],['segSound',PREF.sound?'on':'off']];
+           ['segChar',PREF.chars?'on':'off'],['segSound',PREF.sound?'on':'off'],
+           ['segSe',PREF.se?'on':'off']];
   map.forEach(function(pair){
     var box=document.getElementById(pair[0]);
     if(!box)return;
@@ -532,6 +704,8 @@ function bindSegments(){
         var v=b.getAttribute('data-v');
         PREF[key]=conv?conv(v):v;
         savePref(); applyPref();
+        // 効果音をONにしたときは試しに鳴らす
+        if(key==='se'&&PREF.se)se('se_select',0.5);
       };
     });
   }
@@ -539,6 +713,13 @@ function bindSegments(){
   bind('segSpeed','speed');
   bind('segChar','chars',function(v){return v==='on';});
   bind('segSound','sound',function(v){return v==='on';});
+  bind('segSe','se',function(v){return v==='on';});
+  var os_=document.getElementById('openStat');
+  if(os_)os_.onclick=function(e){
+    e.stopPropagation();
+    $('#pCfg').classList.remove('on');
+    openStat();
+  };
 }
 
 function applyCharMode(){
@@ -583,7 +764,12 @@ function load(){
   try{var r=localStorage.getItem(CFG.saveKey);return r?JSON.parse(r):null;}
   catch(e){return null;}
 }
-function newState(){return JSON.parse(JSON.stringify(META.gameState));}
+function newState(){
+  var st=JSON.parse(JSON.stringify(META.gameState));
+  st.met=[];    // 出会った人物
+  st.seen=[];   // 到達したScene
+  return st;
+}
 
 function bgPath(k){return 'bg/'+k+'.webp';}
 function chPath(c,e){return 'ch/'+c+'_'+e+'.webp';}
@@ -687,6 +873,7 @@ function guessExpr(s){
 }
 function addClue(c){
   if(GS.clues.indexOf(c)<0){
+    se('se_clue',0.45);
     GS.clues.push(c);
     if(GS.vars.VR003_clue!==undefined)GS.vars.VR003_clue++;
     var info=CLUE_TEXT[c];
@@ -702,6 +889,9 @@ function playScene(i){
   $('#recallTag').classList.toggle('on',rc);
   setBG(s.background);setFX(fxFor(s));
   setChars(s.characters,guessExpr(s));
+  if(!GS.seen)GS.seen=[];
+  if(GS.seen.indexOf(s.id)<0)GS.seen.push(s.id);
+  meetPeople(s);
   if(s.amb)playAmb(s.amb);
   if(s.bgm)playBgm(s.bgm);
   $('#hSc').textContent=s.id;
@@ -721,6 +911,13 @@ function nextLine(){
       else if(k==='flash')flash();
       else if(k==='thunder'){flash();se('se_thunder',0.5);}
       else if(k==='knock')se('se_knock',0.55);
+      else if(k==='phone')se('se_phone',0.42);
+      else if(k==='case')se('se_case',0.46);
+      else if(k==='paper')se('se_paper',0.34);
+      else if(k==='door')se('se_door',0.44);
+      else if(k==='step')se('se_step',0.40);
+      else if(k==='heart')se('se_heart',0.46);
+      else if(k==='insight')se('se_insight',0.44);
     });
   }
   var raw=s.lines[li];
@@ -958,6 +1155,9 @@ $$('#hud button').forEach(function(b){
     if(p==='stat')openStat();
   });
 });
+$('#bWho').onclick=function(e){e.stopPropagation();
+  if(!GS)GS=(load()||{}).GS||newState();
+  openWho();};
 $('#bCfg').onclick=function(e){
   e.stopPropagation();
   markSegments();
@@ -977,6 +1177,10 @@ $('#mCont').onclick=function(){
   if(!s){toast('保存されたデータがありません');return;}
   GS=s.GS||newState();
   startChapter(s.chapter||1,s.si||0,s.li||0);
+};
+$('#mWho').onclick=function(){
+  if(!GS)GS=(load()||{}).GS||newState();
+  openWho();
 };
 $('#mChap').onclick=function(){if(!GS)GS=newState();openChap();};
 $('#mClue').onclick=function(){
