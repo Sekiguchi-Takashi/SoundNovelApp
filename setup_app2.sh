@@ -27,6 +27,8 @@ else
 fi
 
 echo "== GitHub Actions のワークフローを更新 =="
+# 注意: release.yml と ci/ はカタログ管理システムが使うため触れない。
+#       ここで作るのは build.yml（開発中のAPK確認用）だけ。
 mkdir -p .github/workflows
 cat > .github/workflows/build.yml << 'YAML'
 name: Build APK
