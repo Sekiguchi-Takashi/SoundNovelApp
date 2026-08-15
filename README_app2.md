@@ -440,12 +440,16 @@ git push
 
 ---
 
-## ビルド結果
+## ビルド
 
-| 成果物 | 内容 |
-|---|---|
-| `novel1-soundnovel-apk` | 1巻（app-debug.apk） |
-| `novel2-toaru-apk` | 2巻（app2-debug.apk） |
+`build.yml` は**ビルドが通るかの確認だけ**を行います。
+APK は Release から配布するため、Artifacts へは上げません。
+
+（Actions の Artifacts 無料枠 0.5GB が枯渇すると
+"Artifact storage quota has been hit" でビルドが失敗するため）
+
+APK の配布は `deploy.sh` がタグを打つことで、
+`release.yml` 側のビルドから Release として行われます。
 
 ---
 

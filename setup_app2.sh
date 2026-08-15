@@ -51,19 +51,13 @@ jobs:
         with:
           gradle-version: '8.9'
 
+      # APK は Release から配布するため、Artifacts へは上げない
+      # （無料枠 0.5GB が枯渇して "Artifact storage quota has been hit" になる）
       - name: Build 1巻 (SoundNovelApp)
         run: gradle :app:assembleDebug --no-daemon
-      - uses: actions/upload-artifact@v4
-        with:
-          name: novel1-soundnovel-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
 
       - name: Build 2巻 (とあるところに)
         run: gradle :app2:assembleDebug --no-daemon
-      - uses: actions/upload-artifact@v4
-        with:
-          name: novel2-toaru-apk
-          path: app2/build/outputs/apk/debug/app2-debug.apk
 YAML
 echo "  更新しました"
 
