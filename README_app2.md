@@ -440,16 +440,6 @@ git push
 
 ---
 
-## ビルド
-
-`build.yml` は**ビルドが通るかの確認だけ**を行います。
-APK は Release から配布するため、Artifacts へは上げません。
-
-（Actions の Artifacts 無料枠 0.5GB が枯渇すると
-"Artifact storage quota has been hit" でビルドが失敗するため）
-
-APK の配布は `deploy.sh` がタグを打つことで、
-`release.yml` 側のビルドから Release として行われます。
 
 ---
 
@@ -484,33 +474,38 @@ APK の配布は `deploy.sh` がタグを打つことで、
 
 ## deploy.sh（push とタグ発行）
 
-`deploy.sh` を同梱しています。**pull --rebase とタグ発行を含めた**形です。
+**pull --rebase とタグ発行を含めた**恒久仕様です。
 
 ```
-cd ~/SoundNovelApp
-bash deploy.sh "novel2 v2.3"
+bash deploy.sh "コミットメッセージ"
+bash deploy.sh "メッセージ" notag
 ```
 
-これ一つで次を行います。
+処理の流れ:
 
-1. リモートをトークン付きURLで設定し直す
-2. 全ファイルをコミット
-3. **`git pull --rebase origin main`**（カタログ管理システムが
-   `release.yml` と `ci/appathy.keystore` を API 経由で直接コミットするため、
-   これが無いと push が rejected になります）
-4. push
-5. 最新リリースのタグを調べ、次の版番号を自動採番してタグを打つ
+1. `build.yml` を削除（CIは release.yml のみ）
+2. リモートをトークン付きURLで設定
+3. コミット
+4. **`git pull --rebase origin main`**
+   （カタログ管理システムが `release.yml` と `ci/appathy.keystore` を
+   API経由で直接コミットするため、これが無いと push が rejected になる）
+5. push
+6. `git tag --list 'v*' | sort -V` から次タグを算出し、
+   `git tag` / `git push origin タグ名` でローカル発行
+   （APIのheads参照は反映遅延で一つ前に付くため使わない）
 
-タグが打たれると Actions がビルドして Release を作り、
-自作アプリストアに更新として現れます。
+第2引数に `notag` を渡すと push のみで終わります。
 
-### 触ってはいけないファイル
+### 触ってはいけないもの
 
-配布ビルドに必要なため、次は削除しないでください。
+配布ビルドに必要なため、削除・追跡解除しないでください。
 
 - `.github/workflows/release.yml`
 - `ci/appathy.keystore`
 - `ci/` ディレクトリ
 
-`setup_app2.sh` が作る `.github/workflows/build.yml` は
-開発中のAPK確認用で、上記とは別物です。
+### build.yml は作りません
+
+CI は `release.yml`（タグ起動）のみです。
+`actions/upload-artifact` も使いません
+（Artifacts枠 0.5GB が枯渇し、全ビルドが落ちるため）。
